@@ -96,6 +96,7 @@
             font-size: 28px;
             margin-bottom: 20px;
             background: linear-gradient(135deg, #a78bfa, #c084fc);
+            background-clip: text;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -178,12 +179,18 @@
 
     <script>
         // ============ GAME CODE ============
+        window.addEventListener('error', (e) => {
+            console.error("Global Error:", e.message);
+        });
+
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
         // ASSETS
         const axeImg = new Image();
-        axeImg.src = 'assets/axe.png';
+        axeImg.src = 'src/Assets/axe.png'; // Updated path
+        axeImg.onload = () => console.log('Axe image loaded!');
+        axeImg.onerror = () => console.error('Failed to load axe image');
 
         // TILE SIZE
         const TILE_SIZE = 64;
@@ -207,24 +214,59 @@
         // CAMERA with smooth follow
         const camera = { x: 0, y: 0, targetX: 0, targetY: 0 };
 
-        // AXE SYSTEM 🪓 (spins around character)
+        // AXE SYSTEM 🪓 (swings 180 degrees)
         const axe = {
-            angle: 0,              // Current rotation angle
-            spinSpeed: 8,          // Radians per second when swinging
+            angle: 0,              // Current visual angle
+            baseAngle: 0,          // Angle towards mouse
+            swingOffset: 0,        // Current swing offset (0 to PI)
             isSwinging: false,     // Currently attacking?
             swingTime: 0,          // Time left in swing
-            swingDuration: 0.4,    // How long a full swing lasts
+            swingDuration: 0.3,    // Fast swing
             reach: 55,             // Distance from player center
-            damage: 0.35           // Damage per hit
+            damage: 0.8            // High damage hit
         };
 
-        // No bullets needed - axe is melee!
+        // WORLD - Generate tiles
+        const tiles = {};
+        function getTile(x, y) {
+            const key = `${x},${y}`;
+            if (!tiles[key]) {
+                // Generate tile on first access
+                if (x < 0 || y < 0 || x >= WORLD_SIZE || y >= WORLD_SIZE) {
+                    tiles[key] = { type: 'void', color: '#000' };
+                } else {
+                    const rand = Math.random();
+                    if (rand < 0.1) {
+                        tiles[key] = { type: 'tree', color: '#059669', solid: true, resource: 'wood' };
+                    } else if (rand < 0.15) {
+                        tiles[key] = { type: 'rock', color: '#6b7280', solid: true, resource: 'stone' };
+                    } else {
+                        tiles[key] = { type: 'grass', color: '#10b981', solid: false };
+                    }
+                }
+            }
+            return tiles[key];
+        }
+
+        // Clear spawn area
+        for (let x = WORLD_SIZE / 2 - 3; x < WORLD_SIZE / 2 + 3; x++) {
+            for (let y = WORLD_SIZE / 2 - 3; y < WORLD_SIZE / 2 + 3; y++) {
+                tiles[`${x},${y}`] = { type: 'grass', color: '#10b981', solid: false };
+            }
+        }
+
+        // INVENTORY
+        const inventory = { wood: 0, stone: 0 };
 
         function swingAxe() {
             if (axe.isSwinging) return;  // Already swinging
 
             axe.isSwinging = true;
             axe.swingTime = axe.swingDuration;
+            // Lock the base angle when swing starts
+            const worldMouseX = mouseX + camera.x;
+            const worldMouseY = mouseY + camera.y;
+            axe.baseAngle = Math.atan2(worldMouseY - player.y, worldMouseX - player.x);
         }
 
         // Check if axe hits a tile during swing
@@ -291,38 +333,6 @@
         });
         document.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
-        // WORLD - Generate tiles
-        const tiles = {};
-        function getTile(x, y) {
-            const key = `${x},${y}`;
-            if (!tiles[key]) {
-                // Generate tile on first access
-                if (x < 0 || y < 0 || x >= WORLD_SIZE || y >= WORLD_SIZE) {
-                    tiles[key] = { type: 'void', color: '#000' };
-                } else {
-                    const rand = Math.random();
-                    if (rand < 0.1) {
-                        tiles[key] = { type: 'tree', color: '#059669', solid: true, resource: 'wood' };
-                    } else if (rand < 0.15) {
-                        tiles[key] = { type: 'rock', color: '#6b7280', solid: true, resource: 'stone' };
-                    } else {
-                        tiles[key] = { type: 'grass', color: '#10b981', solid: false };
-                    }
-                }
-            }
-            return tiles[key];
-        }
-
-        // Clear spawn area
-        for (let x = WORLD_SIZE / 2 - 3; x < WORLD_SIZE / 2 + 3; x++) {
-            for (let y = WORLD_SIZE / 2 - 3; y < WORLD_SIZE / 2 + 3; y++) {
-                tiles[`${x},${y}`] = { type: 'grass', color: '#10b981', solid: false };
-            }
-        }
-
-        // INVENTORY
-        const inventory = { wood: 0, stone: 0 };
-
         // MOUSE
         let mouseX = 0, mouseY = 0;
         let mouseDown = false;
@@ -367,198 +377,221 @@
         let lastTime = performance.now();
 
         function gameLoop(currentTime) {
-            const dt = Math.min((currentTime - lastTime) / 1000, 0.1); // Cap dt
-            lastTime = currentTime;
+            try {
+                const dt = Math.min((currentTime - lastTime) / 1000, 0.1); // Cap dt
+                lastTime = currentTime;
 
-            // === SPRING PHYSICS UPDATE (gats.io style) ===
-            let inputX = 0, inputY = 0;
-            if (keys['w']) inputY = -1;
-            if (keys['s']) inputY = 1;
-            if (keys['a']) inputX = -1;
-            if (keys['d']) inputX = 1;
+                // === SPRING PHYSICS UPDATE (gats.io style) ===
+                let inputX = 0, inputY = 0;
+                if (keys['w']) inputY = -1;
+                if (keys['s']) inputY = 1;
+                if (keys['a']) inputX = -1;
+                if (keys['d']) inputX = 1;
 
-            // Normalize diagonal
-            if (inputX && inputY) { inputX *= 0.707; inputY *= 0.707; }
+                // Normalize diagonal
+                if (inputX && inputY) { inputX *= 0.707; inputY *= 0.707; }
 
-            // Apply acceleration to velocity (spring-like)
-            player.vx += inputX * player.acceleration * dt;
-            player.vy += inputY * player.acceleration * dt;
+                // Apply acceleration to velocity (spring-like)
+                player.vx += inputX * player.acceleration * dt;
+                player.vy += inputY * player.acceleration * dt;
 
-            // Apply friction (damping)
-            player.vx *= player.friction;
-            player.vy *= player.friction;
+                // Apply friction (damping)
+                player.vx *= player.friction;
+                player.vy *= player.friction;
 
-            // Clamp max speed
-            const speed = Math.hypot(player.vx, player.vy);
-            if (speed > player.speed) {
-                player.vx = (player.vx / speed) * player.speed;
-                player.vy = (player.vy / speed) * player.speed;
-            }
-
-            // Move with better collision (check each axis separately)
-            const newX = player.x + player.vx * dt;
-            const newY = player.y + player.vy * dt;
-
-            // Check X collision (all 4 corners)
-            let canMoveX = true;
-            let canMoveY = true;
-            const halfSize = player.size / 2;
-
-            // Check corners for X movement
-            const corners = [
-                { x: newX - halfSize, y: player.y - halfSize },
-                { x: newX + halfSize, y: player.y - halfSize },
-                { x: newX - halfSize, y: player.y + halfSize },
-                { x: newX + halfSize, y: player.y + halfSize }
-            ];
-            for (const c of corners) {
-                const tile = getTile(Math.floor(c.x / TILE_SIZE), Math.floor(c.y / TILE_SIZE));
-                if (tile.solid) { canMoveX = false; player.vx *= -0.3; break; } // Bounce!
-            }
-
-            // Check corners for Y movement
-            const cornersY = [
-                { x: player.x - halfSize, y: newY - halfSize },
-                { x: player.x + halfSize, y: newY - halfSize },
-                { x: player.x - halfSize, y: newY + halfSize },
-                { x: player.x + halfSize, y: newY + halfSize }
-            ];
-            for (const c of cornersY) {
-                const tile = getTile(Math.floor(c.x / TILE_SIZE), Math.floor(c.y / TILE_SIZE));
-                if (tile.solid) { canMoveY = false; player.vy *= -0.3; break; } // Bounce!
-            }
-
-            if (canMoveX) player.x = newX;
-            if (canMoveY) player.y = newY;
-
-            // Smooth camera follow (VERY LAGGY like gats.io)
-            camera.targetX = player.x - canvas.width / 2;
-            camera.targetY = player.y - canvas.height / 2;
-            camera.x += (camera.targetX - camera.x) * 0.025;  // Very slow follow
-            camera.y += (camera.targetY - camera.y) * 0.025;
-
-            // Camera shake when swinging
-            if (axe.isSwinging) {
-                camera.x += (Math.random() - 0.5) * 2;
-                camera.y += (Math.random() - 0.5) * 2;
-            }
-
-            // === UPDATE AXE ===
-            // Always spin when clicking/holding
-            if (mouseDown) {
-                swingAxe();
-            }
-
-            // Spin the axe continuously while swinging
-            if (axe.isSwinging) {
-                axe.angle += axe.spinSpeed * dt * 2 * Math.PI;  // Full spins
-                axe.swingTime -= dt;
-
-                // Check for hits while spinning
-                checkAxeHit();
-
-                if (axe.swingTime <= 0) {
-                    axe.isSwinging = false;
+                // Clamp max speed
+                const speed = Math.hypot(player.vx, player.vy);
+                if (speed > player.speed) {
+                    player.vx = (player.vx / speed) * player.speed;
+                    player.vy = (player.vy / speed) * player.speed;
                 }
-            } else {
-                // When not swinging, slowly rotate to face mouse
-                const worldMouseX = mouseX + camera.x;
-                const worldMouseY = mouseY + camera.y;
-                const targetAngle = Math.atan2(worldMouseY - player.y, worldMouseX - player.x);
-                axe.angle += (targetAngle - axe.angle) * 0.1;
-            }
 
-            // === RENDER ===
-            ctx.fillStyle = '#1a1f3a';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+                // Move with better collision (check each axis separately)
+                const newX = player.x + player.vx * dt;
+                const newY = player.y + player.vy * dt;
 
-            // Draw tiles
-            const startX = Math.floor(camera.x / TILE_SIZE);
-            const startY = Math.floor(camera.y / TILE_SIZE);
-            const endX = startX + Math.ceil(canvas.width / TILE_SIZE) + 1;
-            const endY = startY + Math.ceil(canvas.height / TILE_SIZE) + 1;
+                // Check X collision (all 4 corners)
+                let canMoveX = true;
+                let canMoveY = true;
+                const halfSize = player.size / 2;
 
-            for (let x = startX; x <= endX; x++) {
-                for (let y = startY; y <= endY; y++) {
-                    const tile = getTile(x, y);
-                    const screenX = x * TILE_SIZE - camera.x;
-                    const screenY = y * TILE_SIZE - camera.y;
-                    const tileCenterX = x * TILE_SIZE + TILE_SIZE / 2;
-                    const tileCenterY = y * TILE_SIZE + TILE_SIZE / 2;
-                    const distToPlayer = Math.hypot(player.x - tileCenterX, player.y - tileCenterY);
-                    const inReach = distToPlayer < REACH_DISTANCE && (tile.resource || tile.type === 'wall');
+                // Check corners for X movement
+                const corners = [
+                    { x: newX - halfSize, y: player.y - halfSize },
+                    { x: newX + halfSize, y: player.y - halfSize },
+                    { x: newX - halfSize, y: player.y + halfSize },
+                    { x: newX + halfSize, y: player.y + halfSize }
+                ];
+                for (const c of corners) {
+                    const tile = getTile(Math.floor(c.x / TILE_SIZE), Math.floor(c.y / TILE_SIZE));
+                    if (tile.solid) { canMoveX = false; player.vx *= -0.3; break; } // Bounce!
+                }
 
-                    // Draw tile
-                    ctx.fillStyle = tile.color;
-                    ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                // Check corners for Y movement
+                const cornersY = [
+                    { x: player.x - halfSize, y: newY - halfSize },
+                    { x: player.x + halfSize, y: newY - halfSize },
+                    { x: player.x - halfSize, y: newY + halfSize },
+                    { x: player.x + halfSize, y: newY + halfSize }
+                ];
+                for (const c of cornersY) {
+                    const tile = getTile(Math.floor(c.x / TILE_SIZE), Math.floor(c.y / TILE_SIZE));
+                    if (tile.solid) { canMoveY = false; player.vy *= -0.3; break; } // Bounce!
+                }
 
-                    // Grid lines
-                    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-                    ctx.lineWidth = 1;
-                    ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                if (canMoveX) player.x = newX;
+                if (canMoveY) player.y = newY;
 
-                    // === BLACK GLOW for reachable blocks ===
-                    if (inReach) {
-                        ctx.save();
-                        ctx.shadowColor = '#000';
-                        ctx.shadowBlur = 15;
-                        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-                        ctx.lineWidth = 4;
-                        ctx.strokeRect(screenX + 2, screenY + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-                        ctx.restore();
+                // Smooth camera follow (VERY LAGGY like gats.io)
+                camera.targetX = player.x - canvas.width / 2;
+                camera.targetY = player.y - canvas.height / 2;
+                camera.x += (camera.targetX - camera.x) * 0.025;  // Very slow follow
+                camera.y += (camera.targetY - camera.y) * 0.025;
+
+                // Camera shake when swinging
+                if (axe.isSwinging) {
+                    camera.x += (Math.random() - 0.5) * 2;
+                    camera.y += (Math.random() - 0.5) * 2;
+                }
+
+                // === UPDATE AXE ===
+                // Trigger swing
+                if (mouseDown) {
+                    swingAxe();
+                }
+
+                // Update Axe Animation
+                if (axe.isSwinging) {
+                    axe.swingTime -= dt;
+
+                    // Calculate swing progress (0 to 1)
+                    const progress = 1 - (axe.swingTime / axe.swingDuration);
+
+                    // Swing arc: Start at -90deg (-PI/2), swing to +90deg (+PI/2), then back? 
+                    // Requested: "spin like 180 degrees fastly and then come back"
+
+                    // Let's do a chop: Start back (-45 deg), swing forward fast to (+135 deg)
+                    // Sine wave for smooth swing
+                    const swingArc = Math.PI; // 180 degrees
+
+                    // Simple forward swing 
+                    axe.swingOffset = -Math.PI / 2 + (progress * swingArc);
+
+                    // Update final angle
+                    axe.angle = axe.baseAngle + axe.swingOffset;
+
+                    // Check hits during the middle of the swing (power part)
+                    if (progress > 0.3 && progress < 0.7) {
+                        checkAxeHit();
                     }
 
-                    // Draw icons
-                    ctx.font = '28px Arial';
-                    ctx.textAlign = 'center';
-                    if (tile.type === 'tree') ctx.fillText('🌲', screenX + TILE_SIZE / 2, screenY + TILE_SIZE / 2 + 10);
-                    if (tile.type === 'rock') ctx.fillText('🪨', screenX + TILE_SIZE / 2, screenY + TILE_SIZE / 2 + 10);
-                    if (tile.type === 'wall') {
-                        ctx.fillStyle = '#451a03';
-                        ctx.fillRect(screenX + 4, screenY + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+                    if (axe.swingTime <= 0) {
+                        axe.isSwinging = false;
+                    }
+                } else {
+                    // Determine target angle based on mouse
+                    const worldMouseX = mouseX + camera.x;
+                    const worldMouseY = mouseY + camera.y;
+                    axe.baseAngle = Math.atan2(worldMouseY - player.y, worldMouseX - player.x);
+
+                    // Idle position: slightly to the side
+                    axe.angle = axe.baseAngle + Math.PI / 4;
+                }
+
+                // === RENDER ===
+                ctx.fillStyle = '#1a1f3a';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // Draw tiles
+                const startX = Math.floor(camera.x / TILE_SIZE);
+                const startY = Math.floor(camera.y / TILE_SIZE);
+                const endX = startX + Math.ceil(canvas.width / TILE_SIZE) + 1;
+                const endY = startY + Math.ceil(canvas.height / TILE_SIZE) + 1;
+
+                for (let x = startX; x <= endX; x++) {
+                    for (let y = startY; y <= endY; y++) {
+                        const tile = getTile(x, y);
+                        const screenX = x * TILE_SIZE - camera.x;
+                        const screenY = y * TILE_SIZE - camera.y;
+                        const tileCenterX = x * TILE_SIZE + TILE_SIZE / 2;
+                        const tileCenterY = y * TILE_SIZE + TILE_SIZE / 2;
+                        const distToPlayer = Math.hypot(player.x - tileCenterX, player.y - tileCenterY);
+                        const inReach = distToPlayer < REACH_DISTANCE && (tile.resource || tile.type === 'wall');
+
+                        // Draw tile
+                        ctx.fillStyle = tile.color;
+                        ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+
+                        // Grid lines
+                        ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+
+                        // === BLACK GLOW for reachable blocks ===
+                        if (inReach) {
+                            ctx.save();
+                            ctx.shadowColor = '#000';
+                            ctx.shadowBlur = 15;
+                            ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+                            ctx.lineWidth = 4;
+                            ctx.strokeRect(screenX + 2, screenY + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+                            ctx.restore();
+                        }
+
+                        // Draw icons
+                        ctx.font = '28px Arial';
+                        ctx.textAlign = 'center';
+                        if (tile.type === 'tree') ctx.fillText('🌲', screenX + TILE_SIZE / 2, screenY + TILE_SIZE / 2 + 10);
+                        if (tile.type === 'rock') ctx.fillText('🪨', screenX + TILE_SIZE / 2, screenY + TILE_SIZE / 2 + 10);
+                        if (tile.type === 'wall') {
+                            ctx.fillStyle = '#451a03';
+                            ctx.fillRect(screenX + 4, screenY + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+                        }
                     }
                 }
+
+                // Draw player (gats.io style - green circle)
+                const playerScreenX = player.x - camera.x;
+                const playerScreenY = player.y - camera.y;
+
+                // Main body circle
+                ctx.beginPath();
+                ctx.arc(playerScreenX, playerScreenY, player.size / 2, 0, Math.PI * 2);
+                ctx.fillStyle = '#7cb87c';  // Light green like gats.io
+                ctx.fill();
+                ctx.strokeStyle = '#5a8a5a';  // Darker green outline
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+                // === DRAW SPINNING AXE 🪓 (using asset) ===
+                ctx.save();
+                ctx.translate(playerScreenX, playerScreenY);
+                ctx.rotate(axe.angle);
+
+                if (axeImg.complete) {
+                    // Draw axe image offset to the side
+                    // Offset X=12 puts it at edge of 48px player (radius 24)
+                    // Offset Y=-24 centers the 48x48 image vertically
+                    ctx.drawImage(axeImg, 12, -24, 48, 48);
+                } else {
+                    // Fallback
+                    ctx.fillStyle = '#8B4513';
+                    ctx.fillRect(0, -3, axe.reach - 10, 6);
+                }
+                ctx.restore();
+
+                ctx.fillStyle = '#fff';
+                ctx.font = '14px Arial';
+                ctx.textAlign = 'left';
+                ctx.fillText(`🪵 Wood: ${inventory.wood}  🪨 Stone: ${inventory.stone}`, 20, canvas.height - 20);
+
+                // Position debug
+                ctx.fillText(`Position: ${Math.floor(player.x)}, ${Math.floor(player.y)}`, 10, 20);
+
+                requestAnimationFrame(gameLoop);
+            } catch (e) {
+                console.error("Game loop error: ", e);
             }
-
-            // Draw player (gats.io style - green circle)
-            const playerScreenX = player.x - camera.x;
-            const playerScreenY = player.y - camera.y;
-
-            // Main body circle
-            ctx.beginPath();
-            ctx.arc(playerScreenX, playerScreenY, player.size / 2, 0, Math.PI * 2);
-            ctx.fillStyle = '#7cb87c';  // Light green like gats.io
-            ctx.fill();
-            ctx.strokeStyle = '#5a8a5a';  // Darker green outline
-            ctx.lineWidth = 3;
-            ctx.stroke();
-
-            // === DRAW SPINNING AXE 🪓 (using asset) ===
-            ctx.save();
-            ctx.translate(playerScreenX, playerScreenY);
-            ctx.rotate(axe.angle);
-
-            if (axeImg.complete) {
-                // Draw axe image offset to the side
-                // Offset X=12 puts it at edge of 48px player (radius 24)
-                // Offset Y=-24 centers the 48x48 image vertically
-                ctx.drawImage(axeImg, 12, -24, 48, 48);
-            } else {
-                // Fallback
-                ctx.fillStyle = '#8B4513';
-                ctx.fillRect(0, -3, axe.reach - 10, 6);
-            }
-            ctx.restore();
-
-            ctx.fillStyle = '#fff';
-            ctx.font = '14px Arial';
-            ctx.textAlign = 'left';
-            ctx.fillText(`🪵 Wood: ${inventory.wood}  🪨 Stone: ${inventory.stone}`, 20, canvas.height - 20);
-
-            // Position debug
-            ctx.fillText(`Position: ${Math.floor(player.x)}, ${Math.floor(player.y)}`, 10, 20);
-
-            requestAnimationFrame(gameLoop);
         }
 
         // START
