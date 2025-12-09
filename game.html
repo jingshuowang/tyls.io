@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Survival IO Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: white;
+        }
+
+        #gameCanvas {
+            border: 3px solid rgba(124, 58, 237, 0.5);
+            border-radius: 8px;
+            box-shadow: 0 0 50px rgba(124, 58, 237, 0.3);
+        }
+
+        #hud {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(124, 58, 237, 0.3);
+        }
+
+        .health-bar {
+            width: 200px;
+            height: 20px;
+            background: #333;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .health-fill {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, #ef4444, #f87171);
+        }
+
+        #status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 15px;
+            border-radius: 10px;
+            color: #a78bfa;
+        }
+
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+
+        /* Inventory Popup */
+        #inventoryPopup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, rgba(10, 14, 39, 0.95), rgba(26, 31, 58, 0.95));
+            border: 2px solid rgba(124, 58, 237, 0.5);
+            border-radius: 20px;
+            padding: 30px;
+            min-width: 400px;
+            z-index: 1000;
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.6), 0 0 100px rgba(124, 58, 237, 0.3);
+        }
+
+        #inventoryPopup.open {
+            display: block;
+        }
+
+        #inventoryPopup h2 {
+            font-size: 28px;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, #a78bfa, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .inv-item {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            margin-bottom: 10px;
+            font-size: 20px;
+        }
+
+        .inv-item span {
+            font-size: 32px;
+        }
+
+        .craft-btn {
+            background: linear-gradient(135deg, #7c3aed, #a78bfa);
+            border: none;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 15px;
+            width: 100%;
+        }
+
+        .craft-btn:hover {
+            opacity: 0.9;
+        }
+
+        .craft-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        #overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+        }
+
+        #overlay.open {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="hud">
+        <div>HEALTH</div>
+        <div class="health-bar">
+            <div class="health-fill" id="healthBar"></div>
+        </div>
+    </div>
+    <div id="status">🎮 Solo Mode</div>
+    <canvas id="gameCanvas" width="1000" height="600"></canvas>
+    <div id="controls">WASD to Move • E for Inventory • Left-Click Mine • Right-Click Build</div>
+
+    <!-- Inventory Popup -->
+    <div id="overlay"></div>
+    <div id="inventoryPopup">
+        <h2>📦 Inventory</h2>
+        <div class="inv-item"><span>🪵</span> Wood: <strong id="invWood">0</strong></div>
+        <div class="inv-item"><span>🪨</span> Stone: <strong id="invStone">0</strong></div>
+        <h3 style="margin-top:20px;color:#a78bfa;">Crafting</h3>
+        <button class="craft-btn" id="craftWall">🧱 Build Wall (2 Wood)</button>
+        <button class="craft-btn" id="craftFloor">🟫 Build Floor (1 Wood)</button>
+        <p style="margin-top:15px;color:#666;font-size:12px;">Press E to close</p>
+    </div>
+
+    <script>
+        // ============ GAME CODE ============
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // ASSETS
+        const axeImg = new Image();
+        axeImg.src = 'assets/axe.png';
+
+        // TILE SIZE
+        const TILE_SIZE = 64;
+        const WORLD_SIZE = 50;
+        const REACH_DISTANCE = 100; // Mining reach
+
+        // PLAYER with spring physics (gats.io style)
+        const player = {
+            x: WORLD_SIZE * TILE_SIZE / 2,
+            y: WORLD_SIZE * TILE_SIZE / 2,
+            vx: 0,  // Current velocity
+            vy: 0,
+            size: 48,              // Player size
+            speed: 550,            // Max speed
+            health: 100,
+            // Spring physics params (gats.io feel)
+            friction: 0.92,        // MORE slide (higher = less friction)
+            acceleration: 2200     // Snappy acceleration
+        };
+
+        // CAMERA with smooth follow
+        const camera = { x: 0, y: 0, targetX: 0, targetY: 0 };
+
+        // AXE SYSTEM 🪓 (spins around character)
+        const axe = {
+            angle: 0,              // Current rotation angle
+            spinSpeed: 8,          // Radians per second when swinging
+            isSwinging: false,     // Currently attacking?
+            swingTime: 0,          // Time left in swing
+            swingDuration: 0.4,    // How long a full swing lasts
+            reach: 55,             // Distance from player center
+            damage: 0.35           // Damage per hit
+        };
+
+        // No bullets needed - axe is melee!
+
+        function swingAxe() {
+            if (axe.isSwinging) return;  // Already swinging
+
+            axe.isSwinging = true;
+            axe.swingTime = axe.swingDuration;
+        }
+
+        // Check if axe hits a tile during swing
+        function checkAxeHit() {
+            if (!axe.isSwinging) return;
+
+            // Calculate axe tip position
+            const axeTipX = player.x + Math.cos(axe.angle) * axe.reach;
+            const axeTipY = player.y + Math.sin(axe.angle) * axe.reach;
+
+            const tileX = Math.floor(axeTipX / TILE_SIZE);
+            const tileY = Math.floor(axeTipY / TILE_SIZE);
+            const tile = getTile(tileX, tileY);
+
+            if (tile.resource) {
+                tile.health = (tile.health || 1) - axe.damage * 0.1;  // Continuous damage while spinning
+                if (tile.health <= 0) {
+                    inventory[tile.resource] = (inventory[tile.resource] || 0) + 1;
+                    tiles[`${tileX},${tileY}`] = { type: 'grass', color: '#10b981', solid: false };
+                }
+            }
+        }
+
+        // INVENTORY STATE
+        let inventoryOpen = false;
+        const invPopup = document.getElementById('inventoryPopup');
+        const overlay = document.getElementById('overlay');
+
+        function toggleInventory() {
+            inventoryOpen = !inventoryOpen;
+            invPopup.classList.toggle('open', inventoryOpen);
+            overlay.classList.toggle('open', inventoryOpen);
+            if (inventoryOpen) updateInventoryUI();
+        }
+
+        function updateInventoryUI() {
+            document.getElementById('invWood').textContent = inventory.wood;
+            document.getElementById('invStone').textContent = inventory.stone;
+            document.getElementById('craftWall').disabled = inventory.wood < 2;
+            document.getElementById('craftFloor').disabled = inventory.wood < 1;
+        }
+
+        // Crafting buttons
+        document.getElementById('craftWall').addEventListener('click', () => {
+            if (inventory.wood >= 2) {
+                inventory.wood -= 2;
+                inventory.walls = (inventory.walls || 0) + 1;
+                updateInventoryUI();
+            }
+        });
+        document.getElementById('craftFloor').addEventListener('click', () => {
+            if (inventory.wood >= 1) {
+                inventory.wood -= 1;
+                inventory.floors = (inventory.floors || 0) + 1;
+                updateInventoryUI();
+            }
+        });
+
+        // INPUT
+        const keys = {};
+        document.addEventListener('keydown', e => {
+            keys[e.key.toLowerCase()] = true;
+            if (e.key.toLowerCase() === 'e') toggleInventory();
+        });
+        document.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+        // WORLD - Generate tiles
+        const tiles = {};
+        function getTile(x, y) {
+            const key = `${x},${y}`;
+            if (!tiles[key]) {
+                // Generate tile on first access
+                if (x < 0 || y < 0 || x >= WORLD_SIZE || y >= WORLD_SIZE) {
+                    tiles[key] = { type: 'void', color: '#000' };
+                } else {
+                    const rand = Math.random();
+                    if (rand < 0.1) {
+                        tiles[key] = { type: 'tree', color: '#059669', solid: true, resource: 'wood' };
+                    } else if (rand < 0.15) {
+                        tiles[key] = { type: 'rock', color: '#6b7280', solid: true, resource: 'stone' };
+                    } else {
+                        tiles[key] = { type: 'grass', color: '#10b981', solid: false };
+                    }
+                }
+            }
+            return tiles[key];
+        }
+
+        // Clear spawn area
+        for (let x = WORLD_SIZE / 2 - 3; x < WORLD_SIZE / 2 + 3; x++) {
+            for (let y = WORLD_SIZE / 2 - 3; y < WORLD_SIZE / 2 + 3; y++) {
+                tiles[`${x},${y}`] = { type: 'grass', color: '#10b981', solid: false };
+            }
+        }
+
+        // INVENTORY
+        const inventory = { wood: 0, stone: 0 };
+
+        // MOUSE
+        let mouseX = 0, mouseY = 0;
+        let mouseDown = false;
+
+        canvas.addEventListener('mousemove', e => {
+            const rect = canvas.getBoundingClientRect();
+            mouseX = e.clientX - rect.left;
+            mouseY = e.clientY - rect.top;
+        });
+
+        canvas.addEventListener('mousedown', e => {
+            if (e.button === 0) { // Left click - SWING AXE!
+                mouseDown = true;
+                swingAxe();
+            }
+        });
+
+        canvas.addEventListener('mouseup', e => {
+            if (e.button === 0) mouseDown = false;
+        });
+
+        canvas.addEventListener('contextmenu', e => {
+            e.preventDefault();
+            // Right click - build wall
+            const worldX = mouseX + camera.x;
+            const worldY = mouseY + camera.y;
+            const tileX = Math.floor(worldX / TILE_SIZE);
+            const tileY = Math.floor(worldY / TILE_SIZE);
+            const dist = Math.hypot(player.x - worldX, player.y - worldY);
+
+            if (dist < 100 && inventory.wood >= 2) {
+                const tile = getTile(tileX, tileY);
+                if (!tile.solid) {
+                    tiles[`${tileX},${tileY}`] = { type: 'wall', color: '#78350f', solid: true };
+                    inventory.wood -= 2;
+                    console.log('Built wall!', inventory);
+                }
+            }
+        });
+
+        // GAME LOOP
+        let lastTime = performance.now();
+
+        function gameLoop(currentTime) {
+            const dt = Math.min((currentTime - lastTime) / 1000, 0.1); // Cap dt
+            lastTime = currentTime;
+
+            // === SPRING PHYSICS UPDATE (gats.io style) ===
+            let inputX = 0, inputY = 0;
+            if (keys['w']) inputY = -1;
+            if (keys['s']) inputY = 1;
+            if (keys['a']) inputX = -1;
+            if (keys['d']) inputX = 1;
+
+            // Normalize diagonal
+            if (inputX && inputY) { inputX *= 0.707; inputY *= 0.707; }
+
+            // Apply acceleration to velocity (spring-like)
+            player.vx += inputX * player.acceleration * dt;
+            player.vy += inputY * player.acceleration * dt;
+
+            // Apply friction (damping)
+            player.vx *= player.friction;
+            player.vy *= player.friction;
+
+            // Clamp max speed
+            const speed = Math.hypot(player.vx, player.vy);
+            if (speed > player.speed) {
+                player.vx = (player.vx / speed) * player.speed;
+                player.vy = (player.vy / speed) * player.speed;
+            }
+
+            // Move with better collision (check each axis separately)
+            const newX = player.x + player.vx * dt;
+            const newY = player.y + player.vy * dt;
+
+            // Check X collision (all 4 corners)
+            let canMoveX = true;
+            let canMoveY = true;
+            const halfSize = player.size / 2;
+
+            // Check corners for X movement
+            const corners = [
+                { x: newX - halfSize, y: player.y - halfSize },
+                { x: newX + halfSize, y: player.y - halfSize },
+                { x: newX - halfSize, y: player.y + halfSize },
+                { x: newX + halfSize, y: player.y + halfSize }
+            ];
+            for (const c of corners) {
+                const tile = getTile(Math.floor(c.x / TILE_SIZE), Math.floor(c.y / TILE_SIZE));
+                if (tile.solid) { canMoveX = false; player.vx *= -0.3; break; } // Bounce!
+            }
+
+            // Check corners for Y movement
+            const cornersY = [
+                { x: player.x - halfSize, y: newY - halfSize },
+                { x: player.x + halfSize, y: newY - halfSize },
+                { x: player.x - halfSize, y: newY + halfSize },
+                { x: player.x + halfSize, y: newY + halfSize }
+            ];
+            for (const c of cornersY) {
+                const tile = getTile(Math.floor(c.x / TILE_SIZE), Math.floor(c.y / TILE_SIZE));
+                if (tile.solid) { canMoveY = false; player.vy *= -0.3; break; } // Bounce!
+            }
+
+            if (canMoveX) player.x = newX;
+            if (canMoveY) player.y = newY;
+
+            // Smooth camera follow (VERY LAGGY like gats.io)
+            camera.targetX = player.x - canvas.width / 2;
+            camera.targetY = player.y - canvas.height / 2;
+            camera.x += (camera.targetX - camera.x) * 0.025;  // Very slow follow
+            camera.y += (camera.targetY - camera.y) * 0.025;
+
+            // Camera shake when swinging
+            if (axe.isSwinging) {
+                camera.x += (Math.random() - 0.5) * 2;
+                camera.y += (Math.random() - 0.5) * 2;
+            }
+
+            // === UPDATE AXE ===
+            // Always spin when clicking/holding
+            if (mouseDown) {
+                swingAxe();
+            }
+
+            // Spin the axe continuously while swinging
+            if (axe.isSwinging) {
+                axe.angle += axe.spinSpeed * dt * 2 * Math.PI;  // Full spins
+                axe.swingTime -= dt;
+
+                // Check for hits while spinning
+                checkAxeHit();
+
+                if (axe.swingTime <= 0) {
+                    axe.isSwinging = false;
+                }
+            } else {
+                // When not swinging, slowly rotate to face mouse
+                const worldMouseX = mouseX + camera.x;
+                const worldMouseY = mouseY + camera.y;
+                const targetAngle = Math.atan2(worldMouseY - player.y, worldMouseX - player.x);
+                axe.angle += (targetAngle - axe.angle) * 0.1;
+            }
+
+            // === RENDER ===
+            ctx.fillStyle = '#1a1f3a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw tiles
+            const startX = Math.floor(camera.x / TILE_SIZE);
+            const startY = Math.floor(camera.y / TILE_SIZE);
+            const endX = startX + Math.ceil(canvas.width / TILE_SIZE) + 1;
+            const endY = startY + Math.ceil(canvas.height / TILE_SIZE) + 1;
+
+            for (let x = startX; x <= endX; x++) {
+                for (let y = startY; y <= endY; y++) {
+                    const tile = getTile(x, y);
+                    const screenX = x * TILE_SIZE - camera.x;
+                    const screenY = y * TILE_SIZE - camera.y;
+                    const tileCenterX = x * TILE_SIZE + TILE_SIZE / 2;
+                    const tileCenterY = y * TILE_SIZE + TILE_SIZE / 2;
+                    const distToPlayer = Math.hypot(player.x - tileCenterX, player.y - tileCenterY);
+                    const inReach = distToPlayer < REACH_DISTANCE && (tile.resource || tile.type === 'wall');
+
+                    // Draw tile
+                    ctx.fillStyle = tile.color;
+                    ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+
+                    // Grid lines
+                    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+
+                    // === BLACK GLOW for reachable blocks ===
+                    if (inReach) {
+                        ctx.save();
+                        ctx.shadowColor = '#000';
+                        ctx.shadowBlur = 15;
+                        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+                        ctx.lineWidth = 4;
+                        ctx.strokeRect(screenX + 2, screenY + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+                        ctx.restore();
+                    }
+
+                    // Draw icons
+                    ctx.font = '28px Arial';
+                    ctx.textAlign = 'center';
+                    if (tile.type === 'tree') ctx.fillText('🌲', screenX + TILE_SIZE / 2, screenY + TILE_SIZE / 2 + 10);
+                    if (tile.type === 'rock') ctx.fillText('🪨', screenX + TILE_SIZE / 2, screenY + TILE_SIZE / 2 + 10);
+                    if (tile.type === 'wall') {
+                        ctx.fillStyle = '#451a03';
+                        ctx.fillRect(screenX + 4, screenY + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+                    }
+                }
+            }
+
+            // Draw player (gats.io style - green circle)
+            const playerScreenX = player.x - camera.x;
+            const playerScreenY = player.y - camera.y;
+
+            // Main body circle
+            ctx.beginPath();
+            ctx.arc(playerScreenX, playerScreenY, player.size / 2, 0, Math.PI * 2);
+            ctx.fillStyle = '#7cb87c';  // Light green like gats.io
+            ctx.fill();
+            ctx.strokeStyle = '#5a8a5a';  // Darker green outline
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // === DRAW SPINNING AXE 🪓 (using asset) ===
+            ctx.save();
+            ctx.translate(playerScreenX, playerScreenY);
+            ctx.rotate(axe.angle);
+
+            if (axeImg.complete) {
+                // Draw axe image offset to the side
+                // Offset X=12 puts it at edge of 48px player (radius 24)
+                // Offset Y=-24 centers the 48x48 image vertically
+                ctx.drawImage(axeImg, 12, -24, 48, 48);
+            } else {
+                // Fallback
+                ctx.fillStyle = '#8B4513';
+                ctx.fillRect(0, -3, axe.reach - 10, 6);
+            }
+            ctx.restore();
+
+            ctx.fillStyle = '#fff';
+            ctx.font = '14px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText(`🪵 Wood: ${inventory.wood}  🪨 Stone: ${inventory.stone}`, 20, canvas.height - 20);
+
+            // Position debug
+            ctx.fillText(`Position: ${Math.floor(player.x)}, ${Math.floor(player.y)}`, 10, 20);
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // START
+        console.log('🎮 Game starting!');
+        gameLoop(performance.now());
+    </script>
+</body>
+
+</html>

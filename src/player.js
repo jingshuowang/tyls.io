@@ -1,8 +1,9 @@
 export class Player {
     constructor(x, y) {
         console.log('Player constructor received:', x, y);
-        this.x = x;
-        this.y = y;
+        // Force valid position - fallback to center of world if NaN
+        this.x = (typeof x === 'number' && !isNaN(x)) ? x : 3200;
+        this.y = (typeof y === 'number' && !isNaN(y)) ? y : 3200;
         this.width = 32;
         this.height = 32;
 

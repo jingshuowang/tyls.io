@@ -15,9 +15,17 @@ if (!canvas) {
 const game = new Game(canvas);
 console.log('✅ Game object created');
 
-// Initialize network (will try to connect, falls back to solo mode)
-const network = new Network(game);
-network.connect(); // Try to connect to ws://localhost:8080
+// Network is optional - comment out to play solo
+// const network = new Network(game);
+// network.connect();
+
+// Set status to Solo Mode
+const statusBadge = document.getElementById('onlineStatus');
+if (statusBadge) {
+    statusBadge.innerHTML = '<span class="status-dot" style="background:#a78bfa;box-shadow:0 0 12px rgba(167,139,250,0.8);"></span> Solo Mode';
+    statusBadge.style.borderColor = 'rgba(167, 139, 250, 0.3)';
+    statusBadge.style.color = '#c4b5fd';
+}
 
 // Start game
 game.start();
