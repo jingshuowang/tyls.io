@@ -4,6 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <title>tyls.io</title>
+    <!-- PixiJS Library v7 (stable) -->
+    <script src="https://cdn.jsdelivr.net/npm/pixi.js@7.x/dist/pixi.min.js"></script>
     <style>
         body {
             margin: 0;
@@ -11,13 +13,6 @@
             background: #000;
             overflow: hidden;
             font-family: monospace;
-            cursor: none;
-        }
-
-        canvas {
-            display: block;
-            image-rendering: pixelated;
-            image-rendering: crisp-edges;
         }
 
         #ui {
@@ -30,573 +25,490 @@
             background: rgba(0, 0, 0, 0.5);
             padding: 10px;
             border-radius: 5px;
+            z-index: 100;
+        }
+
+        .error {
+            color: #ff4444;
+            font-weight: bold;
+            font-size: 14px;
         }
     </style>
 </head>
 
 <body>
-    <canvas id="game"></canvas>
     <div id="ui">
-        <div>WASD/Arrows - Move</div>
-        <div>Mouse Wheel - Zoom</div>
-        <div>Alt - Freelook</div>
-        <div>G - Grid</div>
         <div id="pos"></div>
     </div>
 
     <script>
-        const canvas = document.getElementById('game');
-        const ctx = canvas.getContext('2d');
-
-        // Setup canvas
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-
-        window.addEventListener('resize', () => {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-            ctx.imageSmoothingEnabled = false;
+        // Error handling
+        let hasError = false;
+        window.addEventListener('error', (e) => {
+            hasError = true;
+            const errorDiv = document.getElementById('pos');
+            errorDiv.innerHTML = `<span class="error">❌ ERROR: ${e.message}<br>Line: ${e.lineno}<br>Check console (F12)</span>`;
+            console.error('%c ❌ ERROR:', 'color: red; font-size: 20px; font-weight: bold', e.message);
+            console.error('File:', e.filename, 'Line:', e.lineno, 'Col:', e.colno);
+            console.error(e.error);
         });
 
-        ctx.imageSmoothingEnabled = false;
+        // Wait for PixiJS to load
+        window.addEventListener('load', () => {
+            try {
+                // PixiJS v7 Application Setup
+                const app = new PIXI.Application({
+                    width: window.innerWidth,
+                    height: window.innerHeight,
+                    backgroundColor: 0x1a1a1a,
+                    resolution: window.devicePixelRatio || 1,
+                    autoDensity: true,
+                    antialias: false
+                });
+                document.body.appendChild(app.view);
 
-        // Constants
-        const TILE_SIZE = 16;
-        const CHUNK_SIZE = 16;
-        const CHUNK_PIXEL_SIZE = CHUNK_SIZE * TILE_SIZE;
+                // Handle window resize
+                window.addEventListener('resize', () => {
+                    app.renderer.resize(window.innerWidth, window.innerHeight);
+                });
 
-        // Load images
-        const grassImg = new Image();
-        grassImg.src = 'Assets/grass.png';
-        const dirtImg = new Image();
-        dirtImg.src = 'Assets/dirt.png';
-        const cursorImg = new Image();
-        cursorImg.src = 'Assets/cursor.png';
-        const frameImg = new Image();
-        frameImg.src = 'Assets/frame.png'; // 2-frame spritesheet for block selector
-        const crosshairImg = new Image();
-        crosshairImg.src = 'Assets/crosshair.png'; // Center crosshair image
+                // Constants
+                const TILE_SIZE = 16;
+                const CHUNK_SIZE = 16;
+                const CHUNK_PIXEL_SIZE = CHUNK_SIZE * TILE_SIZE;
 
-        // Auto-detect sprite sheet helper
-        function drawTileFromSheet(ctx, img, index, x, y, tileSize = 16) {
-            // Auto-detect sheet dimensions
-            const cols = Math.floor(img.width / tileSize);
-            const rows = Math.floor(img.height / tileSize);
+                // Load textures
+                const grassTexture = PIXI.Texture.from('Assets/grass.png');
+                const dirtTexture = PIXI.Texture.from('Assets/dirt.png');
+                const frameTexture = PIXI.Texture.from('Assets/frame.png');
+                const crosshairTexture = PIXI.Texture.from('Assets/crosshair.png');
+                const cursorTexture = PIXI.Texture.from('Assets/cursor.png');
 
-            // Calculate position (row-by-row: 0, 1, 2... left to right, then next row)
-            const col = index % cols;
-            const row = Math.floor(index / cols);
+                // Create main containers
+                const worldContainer = new PIXI.Container();
+                app.stage.addChild(worldContainer);
 
-            const sx = col * tileSize;
-            const sy = row * tileSize;
+                // UI Container (always on top)
+                const uiContainer = new PIXI.Container();
+                app.stage.addChild(uiContainer);
 
-            ctx.drawImage(img, sx, sy, tileSize, tileSize, x, y, TILE_SIZE, TILE_SIZE);
-        }
+                // Cursor sprite
+                const cursorSprite = new PIXI.Sprite(cursorTexture);
+                cursorSprite.anchor.set(0.5);
+                cursorSprite.width = 32;
+                cursorSprite.height = 32;
+                uiContainer.addChild(cursorSprite);
 
-        // Legacy draw tile (for grass/dirt which use 4-column layout)
-        function drawTile(ctx, img, index, x, y) {
-            const sx = (index % 4) * 16;
-            const sy = Math.floor(index / 4) * 16;
-            ctx.drawImage(img, sx, sy, 16, 16, x, y, TILE_SIZE, TILE_SIZE);
-        }
+                // Crosshair sprite
+                const crosshairSprite = new PIXI.Sprite(crosshairTexture);
+                crosshairSprite.anchor.set(0.5);
+                crosshairSprite.width = 32;
+                crosshairSprite.height = 32;
+                crosshairSprite.alpha = 0.4;
+                uiContainer.addChild(crosshairSprite);
 
-        // Seeded random for dirt tiles
-        function seededRandom(x, y) {
-            const seed = x * 374761393 + y * 668265263;
-            let value = Math.sin(seed) * 43758.5453;
-            return value - Math.floor(value);
-        }
+                // Block selector sprite
+                const selectorSprite = new PIXI.Sprite();
+                selectorSprite.width = TILE_SIZE;
+                selectorSprite.height = TILE_SIZE;
+                worldContainer.addChild(selectorSprite);
 
-        function getDirtTileIndex(x, y) {
-            return Math.floor(seededRandom(x, y) * 16);
-        }
-
-        // CACHE REFRESH: 2025-12-17-23:00 - FIXED SWAPS
-        // Grass tile mapping - COMPLETE CORRECT VERSION
-        const GRASS_TILE_MAP = {
-            // Based on user's specification (E=grass=0, F=dirt=1)
-            '1,1,1,1': 12,  // Tile 12: FFFF - All dirt
-            '0,1,1,1': 15,  // Tile 15: EFFF (SWAPPED with FEEE)
-            '1,0,1,1': 8,   // Tile 8: FEFF (SWAPPED with EFFE)
-            '1,1,0,1': 0,   // Tile 0: FFEF - Bottom Left only
-            '1,1,1,0': 13,  // Tile 13: FFFE - Bottom Right only
-            '0,0,1,1': 9,   // Tile 9: EEFF - Top edge
-            '1,1,0,0': 3,   // Tile 3: FFEE - Bottom edge
-            '0,1,0,1': 11,  // Tile 11: EFEF - Right edge
-            '1,0,1,0': 1,   // Tile 1: FEFE - Left edge
-            '0,0,0,1': 7,   // Tile 7: EEEF - Bottom Right cut
-            '0,0,1,0': 10,  // Tile 10: EEFE - Bottom Left cut
-            '0,1,0,0': 2,   // Tile 2: EFFE (SWAPPED with FEFF)
-            '1,0,0,0': 5,   // Tile 5: FEEE (SWAPPED with EFFF)
-            '0,1,1,0': 4,   // Tile 4: EFFE - Diagonal slash (SWAPPED)
-            '1,0,0,1': 14,  // Tile 14: FEEF - Diagonal slash (SWAPPED)
-            '0,0,0,0': 6    // Tile 6: EEEE - All grass
-        };
-
-        function getGrassTileIndex(x, y) {
-            const tl = getTile(x, y);
-            const tr = getTile(x + 1, y);
-            const bl = getTile(x, y + 1);
-            const br = getTile(x + 1, y + 1);
-            const key = `${tl},${tr},${bl},${br}`;
-            return GRASS_TILE_MAP[key] !== undefined ? GRASS_TILE_MAP[key] : 6;
-        }
-
-        // Perlin noise
-        class PerlinNoise {
-            constructor(seed = 0) {
-                this.perm = [];
-                for (let i = 0; i < 256; i++) this.perm[i] = i;
-                for (let i = 255; i > 0; i--) {
-                    const j = Math.floor(seededRandom(i, seed) * (i + 1));
-                    [this.perm[i], this.perm[j]] = [this.perm[j], this.perm[i]];
+                // Helper: Get texture from spritesheet
+                function getTileTexture(baseTexture, index, cols = 4, tileSize = 16) {
+                    const col = index % cols;
+                    const row = Math.floor(index / cols);
+                    return new PIXI.Texture(
+                        baseTexture,
+                        new PIXI.Rectangle(col * tileSize, row * tileSize, tileSize, tileSize)
+                    );
                 }
-                this.perm = [...this.perm, ...this.perm];
-            }
-            fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
-            lerp(t, a, b) { return a + t * (b - a); }
-            grad(hash, x, y) {
-                const h = hash & 15;
-                const u = h < 8 ? x : y;
-                const v = h < 4 ? y : h === 12 || h === 14 ? x : 0;
-                return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
-            }
-            noise(x, y) {
-                const X = Math.floor(x) & 255;
-                const Y = Math.floor(y) & 255;
-                x -= Math.floor(x);
-                y -= Math.floor(y);
-                const u = this.fade(x);
-                const v = this.fade(y);
-                const a = this.perm[X] + Y;
-                const b = this.perm[X + 1] + Y;
-                return this.lerp(v,
-                    this.lerp(u, this.grad(this.perm[a], x, y), this.grad(this.perm[b], x - 1, y)),
-                    this.lerp(u, this.grad(this.perm[a + 1], x, y - 1), this.grad(this.perm[b + 1], x - 1, y - 1))
-                );
-            }
-        }
 
-        const perlin = new PerlinNoise(42);
-
-        // Chunk system
-        const chunks = new Map();
-
-        function generateChunk(cx, cy) {
-            const tiles = [];
-            for (let y = 0; y < CHUNK_SIZE; y++) {
-                tiles[y] = [];
-                for (let x = 0; x < CHUNK_SIZE; x++) {
-                    const worldX = cx * CHUNK_SIZE + x;
-                    const worldY = cy * CHUNK_SIZE + y;
-                    const noise = perlin.noise(worldX * 0.05, worldY * 0.05);
-                    tiles[y][x] = noise > 0.1 ? 0 : 1; // 0=grass, 1=dirt
+                // Seeded random for dirt tiles
+                function seededRandom(x, y) {
+                    const seed = x * 374761393 + y * 668265263;
+                    let value = Math.sin(seed) * 43758.5453;
+                    return value - Math.floor(value);
                 }
-            }
-            return tiles;
-        }
 
-        function getChunk(cx, cy) {
-            const key = `${cx},${cy}`;
-            if (!chunks.has(key)) {
-                chunks.set(key, generateChunk(cx, cy));
-            }
-            return chunks.get(key);
-        }
+                function getDirtTileIndex(x, y) {
+                    return Math.floor(seededRandom(x, y) * 16);
+                }
 
-        function getTile(worldX, worldY) {
-            const cx = Math.floor(worldX / CHUNK_SIZE);
-            const cy = Math.floor(worldY / CHUNK_SIZE);
-            const chunk = getChunk(cx, cy);
-            const tx = ((worldX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-            const ty = ((worldY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-            return chunk[ty][tx];
-        }
+                // Grass tile mapping
+                const GRASS_TILE_MAP = {
+                    '1,1,1,1': 12, '0,1,1,1': 15, '1,0,1,1': 8, '1,1,0,1': 0, '1,1,1,0': 13,
+                    '0,0,1,1': 9, '1,1,0,0': 3, '0,1,0,1': 11, '1,0,1,0': 1,
+                    '0,0,0,1': 7, '0,0,1,0': 10, '0,1,0,0': 2, '1,0,0,0': 5,
+                    '0,1,1,0': 14, '1,0,0,1': 4, '0,0,0,0': 6
+                };
 
-        // Player
-        const player = {
-            x: 0,
-            y: 0,
-            width: 14,
-            height: 14,
-            speed: 150
-        };
+                function getGrassTileIndex(x, y) {
+                    const tl = getTile(x, y);
+                    const tr = getTile(x + 1, y);
+                    const bl = getTile(x, y + 1);
+                    const br = getTile(x + 1, y + 1);
+                    const key = `${tl},${tr},${bl},${br}`;
+                    return GRASS_TILE_MAP[key] !== undefined ? GRASS_TILE_MAP[key] : 6;
+                }
 
-        // Camera
-        const camera = {
-            x: 0,
-            y: 0,
-            zoom: 2, // Start at 2x zoom
-            minZoom: 1,
-            maxZoom: 4,
-            freelook: false,
-            showGrid: false
-        };
-
-        // Input
-        const keys = {};
-        const mouse = {
-            x: canvas.width / 2,
-            y: canvas.height / 2,
-            leftDown: false,
-            rightDown: false,
-            lastPlacedTile: null // Track last tile to avoid duplicate placements
-        };
-
-        document.addEventListener('keydown', e => {
-            keys[e.key.toLowerCase()] = true;
-            if (e.key === 'Alt') {
-                camera.freelook = !camera.freelook;
-                e.preventDefault();
-            }
-            if (e.key.toLowerCase() === 'g') {
-                camera.showGrid = !camera.showGrid;
-            }
-        });
-        document.addEventListener('keyup', e => {
-            keys[e.key.toLowerCase()] = false;
-        });
-
-        document.addEventListener('mousemove', (e) => {
-            const prevX = mouse.x;
-            const prevY = mouse.y;
-            mouse.x = e.clientX;
-            mouse.y = e.clientY;
-
-            if (camera.freelook && mouse.leftDown) {
-                const dx = (mouse.x - prevX) / camera.zoom;
-                const dy = (mouse.y - prevY) / camera.zoom;
-                camera.x -= dx;
-                camera.y -= dy;
-            }
-
-            // Drag to place/remove blocks (only when not in freelook)
-            if (!camera.freelook) {
-                if (mouse.leftDown || mouse.rightDown) {
-                    const worldX = Math.floor((mouse.x / camera.zoom + camera.x) / TILE_SIZE);
-                    const worldY = Math.floor((mouse.y / camera.zoom + camera.y) / TILE_SIZE);
-
-                    const chunkX = Math.floor(worldX / CHUNK_SIZE);
-                    const chunkY = Math.floor(worldY / CHUNK_SIZE);
-                    const chunk = getChunk(chunkX, chunkY);
-
-                    const tileX = ((worldX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-                    const tileY = ((worldY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-
-                    if (mouse.leftDown) {
-                        chunk[tileY][tileX] = 1; // Place dirt
-                    } else if (mouse.rightDown) {
-                        chunk[tileY][tileX] = 0; // Remove dirt
+                // Perlin noise
+                class PerlinNoise {
+                    constructor(seed = 0) {
+                        this.perm = [];
+                        for (let i = 0; i < 256; i++) this.perm[i] = i;
+                        for (let i = 255; i > 0; i--) {
+                            const j = Math.floor(seededRandom(i, seed) * (i + 1));
+                            [this.perm[i], this.perm[j]] = [this.perm[j], this.perm[i]];
+                        }
+                        this.perm = [...this.perm, ...this.perm];
+                    }
+                    fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+                    lerp(t, a, b) { return a + t * (b - a); }
+                    grad(hash, x, y) {
+                        const h = hash & 15;
+                        const u = h < 8 ? x : y;
+                        const v = h < 4 ? y : h === 12 || h === 14 ? x : 0;
+                        return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+                    }
+                    noise(x, y) {
+                        const X = Math.floor(x) & 255;
+                        const Y = Math.floor(y) & 255;
+                        x -= Math.floor(x);
+                        y -= Math.floor(y);
+                        const u = this.fade(x);
+                        const v = this.fade(y);
+                        const a = this.perm[X] + Y;
+                        const b = this.perm[X + 1] + Y;
+                        return this.lerp(v,
+                            this.lerp(u, this.grad(this.perm[a], x, y), this.grad(this.perm[b], x - 1, y)),
+                            this.lerp(u, this.grad(this.perm[a + 1], x, y - 1), this.grad(this.perm[b + 1], x - 1, y - 1))
+                        );
                     }
                 }
-            }
-        });
 
-        document.addEventListener('mousedown', (e) => {
-            if (e.button === 0) {
-                mouse.leftDown = true;
-                // Place block immediately on click
-                if (!camera.freelook) {
-                    const mouseWorldX = mouse.x / camera.zoom + camera.x;
-                    const mouseWorldY = mouse.y / camera.zoom + camera.y;
-                    const worldX = Math.floor(mouseWorldX / TILE_SIZE);
-                    const worldY = Math.floor(mouseWorldY / TILE_SIZE);
+                const perlin = new PerlinNoise(42);
 
-                    const chunkX = Math.floor(worldX / CHUNK_SIZE);
-                    const chunkY = Math.floor(worldY / CHUNK_SIZE);
-                    const chunk = getChunk(chunkX, chunkY);
+                // Chunk system
+                const chunks = new Map();
+                const chunkContainers = new Map();
 
-                    const tileX = ((worldX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-                    const tileY = ((worldY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-
-                    chunk[tileY][tileX] = 1; // Place dirt
-                }
-            } else if (e.button === 2) {
-                mouse.rightDown = true;
-                // Remove block immediately on right-click
-                if (!camera.freelook) {
-                    const mouseWorldX = mouse.x / camera.zoom + camera.x;
-                    const mouseWorldY = mouse.y / camera.zoom + camera.y;
-                    const worldX = Math.floor(mouseWorldX / TILE_SIZE);
-                    const worldY = Math.floor(mouseWorldY / TILE_SIZE);
-
-                    const chunkX = Math.floor(worldX / CHUNK_SIZE);
-                    const chunkY = Math.floor(worldY / CHUNK_SIZE);
-                    const chunk = getChunk(chunkX, chunkY);
-
-                    const tileX = ((worldX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-                    const tileY = ((worldY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-
-                    chunk[tileY][tileX] = 0; // Remove dirt
-                }
-            }
-        });
-
-        document.addEventListener('mouseup', (e) => {
-            if (e.button === 0) {
-                mouse.leftDown = false;
-            } else if (e.button === 2) {
-                mouse.rightDown = false;
-            }
-        });
-
-        // Prevent context menu
-        document.addEventListener('contextmenu', (e) => e.preventDefault());
-
-        // Mouse wheel zoom
-        document.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            const zoomDelta = e.deltaY > 0 ? 0.9 : 1.1;
-            camera.zoom = Math.max(camera.minZoom, Math.min(camera.maxZoom, camera.zoom * zoomDelta));
-        });
-
-        // Game loop
-        let lastTime = performance.now();
-
-        function gameLoop(time) {
-            try {
-                requestAnimationFrame(gameLoop);
-                const dt = Math.min((time - lastTime) / 1000, 0.1);
-                lastTime = time;
-
-                // Movement (round player position to prevent boiling)
-                let moveX = 0, moveY = 0;
-                if (keys['a'] || keys['arrowleft']) moveX = -1;
-                if (keys['d'] || keys['arrowright']) moveX = 1;
-                if (keys['w'] || keys['arrowup']) moveY = -1;
-                if (keys['s'] || keys['arrowdown']) moveY = 1;
-
-                if (moveX !== 0 && moveY !== 0) {
-                    moveX *= 0.707;
-                    moveY *= 0.707;
-                }
-
-                player.x = Math.round(player.x + moveX * player.speed * dt);
-                player.y = Math.round(player.y + moveY * player.speed * dt);
-
-                // Camera follow (smooth, no rounding)
-                if (!camera.freelook) {
-                    camera.x = player.x + player.width / 2 - (canvas.width / 2) / camera.zoom;
-                    camera.y = player.y + player.height / 2 - (canvas.height / 2) / camera.zoom;
-                }
-
-                // RENDER
-                ctx.fillStyle = '#1a1a1a';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-                ctx.save();
-                ctx.scale(camera.zoom, camera.zoom);
-
-                // Calculate visible area
-                const viewWidth = canvas.width / camera.zoom;
-                const viewHeight = canvas.height / camera.zoom;
-                const startChunkX = Math.floor((camera.x - TILE_SIZE) / CHUNK_PIXEL_SIZE);
-                const endChunkX = Math.ceil((camera.x + viewWidth + TILE_SIZE) / CHUNK_PIXEL_SIZE);
-                const startChunkY = Math.floor((camera.y - TILE_SIZE) / CHUNK_PIXEL_SIZE);
-                const endChunkY = Math.ceil((camera.y + viewHeight + TILE_SIZE) / CHUNK_PIXEL_SIZE);
-
-                // Render chunks
-                for (let cy = startChunkY; cy < endChunkY; cy++) {
-                    for (let cx = startChunkX; cx < endChunkX; cx++) {
-                        const chunk = getChunk(cx, cy);
-                        const chunkBaseX = cx * CHUNK_SIZE;
-                        const chunkBaseY = cy * CHUNK_SIZE;
-
-                        for (let ty = 0; ty < CHUNK_SIZE; ty++) {
-                            for (let tx = 0; tx < CHUNK_SIZE; tx++) {
-                                const worldX = chunkBaseX + tx;
-                                const worldY = chunkBaseY + ty;
-                                const visualX = worldX + 0.5;
-                                const visualY = worldY + 0.5;
-                                const screenX = visualX * TILE_SIZE - camera.x;
-                                const screenY = visualY * TILE_SIZE - camera.y;
-
-                                // Draw dirt
-                                const dirtIdx = getDirtTileIndex(worldX, worldY);
-                                drawTile(ctx, dirtImg, dirtIdx, screenX, screenY);
-
-                                // Draw grass
-                                const grassIdx = getGrassTileIndex(worldX, worldY);
-                                drawTile(ctx, grassImg, grassIdx, screenX, screenY);
-                            }
+                function generateChunk(cx, cy) {
+                    const tiles = [];
+                    for (let y = 0; y < CHUNK_SIZE; y++) {
+                        tiles[y] = [];
+                        for (let x = 0; x < CHUNK_SIZE; x++) {
+                            const worldX = cx * CHUNK_SIZE + x;
+                            const worldY = cy * CHUNK_SIZE + y;
+                            const noise = perlin.noise(worldX * 0.05, worldY * 0.05);
+                            tiles[y][x] = noise > 0.1 ? 0 : 1; // 0=grass, 1=dirt
                         }
                     }
+                    return tiles;
                 }
 
-                // Grid
-                if (camera.showGrid) {
-                    // Tile grid (red)
-                    ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)';
-                    ctx.lineWidth = 1 / camera.zoom;
-                    const gridStartX = Math.floor(camera.x / TILE_SIZE) * TILE_SIZE;
-                    const gridStartY = Math.floor(camera.y / TILE_SIZE) * TILE_SIZE;
-                    for (let x = gridStartX; x < camera.x + viewWidth; x += TILE_SIZE) {
-                        ctx.beginPath();
-                        ctx.moveTo(x - camera.x, 0);
-                        ctx.lineTo(x - camera.x, viewHeight);
-                        ctx.stroke();
+                function getChunk(cx, cy) {
+                    const key = `${cx},${cy}`;
+                    if (!chunks.has(key)) {
+                        chunks.set(key, generateChunk(cx, cy));
                     }
-                    for (let y = gridStartY; y < camera.y + viewHeight; y += TILE_SIZE) {
-                        ctx.beginPath();
-                        ctx.moveTo(0, y - camera.y);
-                        ctx.lineTo(viewWidth, y - camera.y);
-                        ctx.stroke();
+                    return chunks.get(key);
+                }
+
+                function getTile(worldX, worldY) {
+                    const cx = Math.floor(worldX / CHUNK_SIZE);
+                    const cy = Math.floor(worldY / CHUNK_SIZE);
+                    const chunk = getChunk(cx, cy);
+                    const tx = ((worldX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                    const ty = ((worldY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                    return chunk[ty][tx];
+                }
+
+                // Render chunk as PixiJS container
+                function renderChunk(cx, cy) {
+                    const key = `${cx},${cy}`;
+
+                    // Remove old container if exists
+                    if (chunkContainers.has(key)) {
+                        const oldContainer = chunkContainers.get(key);
+                        worldContainer.removeChild(oldContainer);
+                        oldContainer.destroy({ children: true });
                     }
 
-                    // Chunk grid (blue)
-                    ctx.strokeStyle = 'rgba(0, 100, 255, 0.6)';
-                    ctx.lineWidth = 3 / camera.zoom;
-                    const chunkStartX = Math.floor(camera.x / CHUNK_PIXEL_SIZE) * CHUNK_PIXEL_SIZE;
-                    const chunkStartY = Math.floor(camera.y / CHUNK_PIXEL_SIZE) * CHUNK_PIXEL_SIZE;
-                    for (let x = chunkStartX; x < camera.x + viewWidth; x += CHUNK_PIXEL_SIZE) {
-                        ctx.beginPath();
-                        ctx.moveTo(x - camera.x, 0);
-                        ctx.lineTo(x - camera.x, viewHeight);
-                        ctx.stroke();
+                    const chunk = getChunk(cx, cy);
+                    const container = new PIXI.Container();
+
+                    for (let ty = 0; ty < CHUNK_SIZE; ty++) {
+                        for (let tx = 0; tx < CHUNK_SIZE; tx++) {
+                            const worldX = cx * CHUNK_SIZE + tx;
+                            const worldY = cy * CHUNK_SIZE + ty;
+                            const visualX = (worldX + 0.5) * TILE_SIZE;
+                            const visualY = (worldY + 0.5) * TILE_SIZE;
+
+                            // Dirt sprite
+                            const dirtIdx = getDirtTileIndex(worldX, worldY);
+                            const dirtSprite = new PIXI.Sprite(getTileTexture(dirtTexture.baseTexture, dirtIdx));
+                            dirtSprite.x = visualX;
+                            dirtSprite.y = visualY;
+                            dirtSprite.anchor.set(0.5);
+                            dirtSprite.width = TILE_SIZE;
+                            dirtSprite.height = TILE_SIZE;
+                            container.addChild(dirtSprite);
+
+                            // Grass sprite
+                            const grassIdx = getGrassTileIndex(worldX, worldY);
+                            const grassSprite = new PIXI.Sprite(getTileTexture(grassTexture.baseTexture, grassIdx));
+                            grassSprite.x = visualX;
+                            grassSprite.y = visualY;
+                            grassSprite.anchor.set(0.5);
+                            grassSprite.width = TILE_SIZE;
+                            grassSprite.height = TILE_SIZE;
+                            container.addChild(grassSprite);
+                        }
                     }
-                    for (let y = chunkStartY; y < camera.y + viewHeight; y += CHUNK_PIXEL_SIZE) {
-                        ctx.beginPath();
-                        ctx.moveTo(0, y - camera.y);
-                        ctx.lineTo(viewWidth, y - camera.y);
-                        ctx.stroke();
+
+                    worldContainer.addChild(container);
+                    chunkContainers.set(key, container);
+                    return container;
+                }
+
+                // Player
+                const player = {
+                    x: 0,
+                    y: 0,
+                    width: 14,
+                    height: 14,
+                    speed: 150
+                };
+
+                // Camera
+                const camera = {
+                    x: 0,
+                    y: 0,
+                    zoom: 2,
+                    minZoom: 1,
+                    maxZoom: 4,
+                    freelook: false,
+                    showGrid: false
+                };
+
+                // Input
+                const keys = {};
+                const mouse = {
+                    x: window.innerWidth / 2,
+                    y: window.innerHeight / 2,
+                    leftDown: false,
+                    rightDown: false
+                };
+
+                document.addEventListener('keydown', e => {
+                    keys[e.key.toLowerCase()] = true;
+                    if (e.key === 'Alt') {
+                        camera.freelook = !camera.freelook;
+                        e.preventDefault();
                     }
-                }
+                    if (e.key.toLowerCase() === 'g') {
+                        camera.showGrid = !camera.showGrid;
+                    }
+                });
+                document.addEventListener('keyup', e => {
+                    keys[e.key.toLowerCase()] = false;
+                });
 
-                // Block selector overlay (show which block is being hovered/edited)
-                if (!camera.freelook && frameImg.complete) {
-                    // Use WORLD grid (red grid) - NOT visual grid
-                    const mouseWorldX = mouse.x / camera.zoom + camera.x;
-                    const mouseWorldY = mouse.y / camera.zoom + camera.y;
+                document.addEventListener('mousemove', (e) => {
+                    const prevX = mouse.x;
+                    const prevY = mouse.y;
+                    mouse.x = e.clientX;
+                    mouse.y = e.clientY;
 
-                    const hoverWorldX = Math.floor(mouseWorldX / TILE_SIZE);
-                    const hoverWorldY = Math.floor(mouseWorldY / TILE_SIZE);
+                    if (camera.freelook && mouse.leftDown) {
+                        const dx = (mouse.x - prevX) / camera.zoom;
+                        const dy = (mouse.y - prevY) / camera.zoom;
+                        camera.x -= dx;
+                        camera.y -= dy;
+                    }
 
-                    // Render on world grid (no 0.5 offset)
-                    const hoverScreenX = hoverWorldX * TILE_SIZE - camera.x;
-                    const hoverScreenY = hoverWorldY * TILE_SIZE - camera.y;
+                    // Drag to place/remove blocks
+                    if (!camera.freelook && (mouse.leftDown || mouse.rightDown)) {
+                        const mouseWorldX = mouse.x / camera.zoom + camera.x;
+                        const mouseWorldY = mouse.y / camera.zoom + camera.y;
+                        const worldX = Math.floor(mouseWorldX / TILE_SIZE);
+                        const worldY = Math.floor(mouseWorldY / TILE_SIZE);
 
-                    // Frame 0 = hover, Frame 1 = pressed (AUTO-DETECT layout)
-                    const frameIndex = (mouse.leftDown || mouse.rightDown) ? 1 : 0;
-                    drawTileFromSheet(ctx, frameImg, frameIndex, hoverScreenX, hoverScreenY);
-                }
+                        const chunkX = Math.floor(worldX / CHUNK_SIZE);
+                        const chunkY = Math.floor(worldY / CHUNK_SIZE);
+                        const chunk = getChunk(chunkX, chunkY);
 
-                ctx.restore();
+                        const tileX = ((worldX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                        const tileY = ((worldY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
 
-                // Crosshair (always on top) - use image if available
-                const centerX = canvas.width / 2;
-                const centerY = canvas.height / 2;
+                        if (mouse.leftDown) {
+                            chunk[tileY][tileX] = 1; // Place dirt
+                            renderChunk(chunkX, chunkY);
+                        } else if (mouse.rightDown) {
+                            chunk[tileY][tileX] = 0; // Remove dirt
+                            renderChunk(chunkX, chunkY);
+                        }
+                    }
+                });
 
-                if (crosshairImg.complete) {
-                    // Draw crosshair image centered with transparency
-                    ctx.globalAlpha = 0.4; // Make it translucent like the original
-                    const crosshairSize = 32;
-                    ctx.drawImage(crosshairImg, centerX - crosshairSize / 2, centerY - crosshairSize / 2, crosshairSize, crosshairSize);
-                    ctx.globalAlpha = 1.0; // Reset alpha
-                } else {
-                    // Fallback to drawn crosshair
-                    ctx.strokeStyle = 'rgba(200, 200, 200, 0.4)';
-                    ctx.lineWidth = 1.5;
-                    ctx.beginPath();
-                    ctx.moveTo(centerX - 6, centerY);
-                    ctx.lineTo(centerX + 6, centerY);
-                    ctx.moveTo(centerX, centerY - 6);
-                    ctx.lineTo(centerX, centerY + 6);
-                    ctx.stroke();
-                }
+                document.addEventListener('mousedown', (e) => {
+                    if (e.button === 0) {
+                        mouse.leftDown = true;
+                        if (!camera.freelook) {
+                            const mouseWorldX = mouse.x / camera.zoom + camera.x;
+                            const mouseWorldY = mouse.y / camera.zoom + camera.y;
+                            const worldX = Math.floor(mouseWorldX / TILE_SIZE);
+                            const worldY = Math.floor(mouseWorldY / TILE_SIZE);
 
-                // Cursor (normal size)
-                if (cursorImg.complete) {
-                    ctx.drawImage(cursorImg, mouse.x - 16, mouse.y - 16, 32, 32);
-                }
+                            const chunkX = Math.floor(worldX / CHUNK_SIZE);
+                            const chunkY = Math.floor(worldY / CHUNK_SIZE);
+                            const chunk = getChunk(chunkX, chunkY);
 
-                // UI
-                document.getElementById('pos').textContent =
-                    `Pos: ${Math.floor(player.x)}, ${Math.floor(player.y)} | Zoom: ${camera.zoom.toFixed(1)}x | Chunks: ${chunks.size}`;
+                            const tileX = ((worldX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                            const tileY = ((worldY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+
+                            chunk[tileY][tileX] = 1;
+                            renderChunk(chunkX, chunkY);
+                        }
+                    } else if (e.button === 2) {
+                        mouse.rightDown = true;
+                        if (!camera.freelook) {
+                            const mouseWorldX = mouse.x / camera.zoom + camera.x;
+                            const mouseWorldY = mouse.y / camera.zoom + camera.y;
+                            const worldX = Math.floor(mouseWorldX / TILE_SIZE);
+                            const worldY = Math.floor(mouseWorldY / TILE_SIZE);
+
+                            const chunkX = Math.floor(worldX / CHUNK_SIZE);
+                            const chunkY = Math.floor(worldY / CHUNK_SIZE);
+                            const chunk = getChunk(chunkX, chunkY);
+
+                            const tileX = ((worldX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                            const tileY = ((worldY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+
+                            chunk[tileY][tileX] = 0;
+                            renderChunk(chunkX, chunkY);
+                        }
+                    }
+                });
+
+                document.addEventListener('mouseup', (e) => {
+                    if (e.button === 0) mouse.leftDown = false;
+                    else if (e.button === 2) mouse.rightDown = false;
+                });
+
+                document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+                document.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const zoomDelta = e.deltaY > 0 ? 0.9 : 1.1;
+                    camera.zoom = Math.max(camera.minZoom, Math.min(camera.maxZoom, camera.zoom * zoomDelta));
+                });
+
+                // Game loop
+                let lastTime = performance.now();
+
+                app.ticker.add(() => {
+                    try {
+                        if (hasError) return; // Stop if error occurred
+
+                        const time = performance.now();
+                        const dt = Math.min((time - lastTime) / 1000, 0.1);
+                        lastTime = time;
+
+                        // Movement
+                        let moveX = 0, moveY = 0;
+                        if (keys['a'] || keys['arrowleft']) moveX = -1;
+                        if (keys['d'] || keys['arrowright']) moveX = 1;
+                        if (keys['w'] || keys['arrowup']) moveY = -1;
+                        if (keys['s'] || keys['arrowdown']) moveY = 1;
+
+                        if (moveX !== 0 && moveY !== 0) {
+                            moveX *= 0.707;
+                            moveY *= 0.707;
+                        }
+
+                        player.x = Math.round(player.x + moveX * player.speed * dt);
+                        player.y = Math.round(player.y + moveY * player.speed * dt);
+
+                        // Camera follow
+                        if (!camera.freelook) {
+                            camera.x = player.x + player.width / 2 - (app.screen.width / 2) / camera.zoom;
+                            camera.y = player.y + player.height / 2 - (app.screen.height / 2) / camera.zoom;
+                        }
+
+                        // Update world container transform
+                        worldContainer.x = -camera.x * camera.zoom;
+                        worldContainer.y = -camera.y * camera.zoom;
+                        worldContainer.scale.set(camera.zoom);
+
+                        // Calculate visible chunks
+                        const viewWidth = app.screen.width / camera.zoom;
+                        const viewHeight = app.screen.height / camera.zoom;
+                        const startChunkX = Math.floor((camera.x - TILE_SIZE) / CHUNK_PIXEL_SIZE);
+                        const endChunkX = Math.ceil((camera.x + viewWidth + TILE_SIZE) / CHUNK_PIXEL_SIZE);
+                        const startChunkY = Math.floor((camera.y - TILE_SIZE) / CHUNK_PIXEL_SIZE);
+                        const endChunkY = Math.ceil((camera.y + viewHeight + TILE_SIZE) / CHUNK_PIXEL_SIZE);
+
+                        // Render visible chunks
+                        for (let cy = startChunkY; cy < endChunkY; cy++) {
+                            for (let cx = startChunkX; cx < endChunkX; cx++) {
+                                const key = `${cx},${cy}`;
+                                if (!chunkContainers.has(key)) {
+                                    renderChunk(cx, cy);
+                                }
+                            }
+                        }
+
+                        // Update block selector
+                        if (!camera.freelook) {
+                            const mouseWorldX = mouse.x / camera.zoom + camera.x;
+                            const mouseWorldY = mouse.y / camera.zoom + camera.y;
+                            const hoverWorldX = Math.floor(mouseWorldX / TILE_SIZE);
+                            const hoverWorldY = Math.floor(mouseWorldY / TILE_SIZE);
+
+                            selectorSprite.x = hoverWorldX * TILE_SIZE;
+                            selectorSprite.y = hoverWorldY * TILE_SIZE;
+                            selectorSprite.visible = true;
+
+                            // Frame 0 = hover, Frame 1 = pressed
+                            const frameIndex = (mouse.leftDown || mouse.rightDown) ? 1 : 0;
+                            selectorSprite.texture = getTileTexture(frameTexture.baseTexture, frameIndex, 1);
+                        } else {
+                            selectorSprite.visible = false;
+                        }
+
+                        // Update crosshair
+                        crosshairSprite.x = app.screen.width / 2;
+                        crosshairSprite.y = app.screen.height / 2;
+
+                        // Update cursor
+                        cursorSprite.x = mouse.x;
+                        cursorSprite.y = mouse.y;
+
+                        // UI
+                        document.getElementById('pos').textContent =
+                            `Pos: ${Math.floor(player.x)}, ${Math.floor(player.y)} | Zoom: ${camera.zoom.toFixed(1)}x | Chunks: ${chunks.size} | FPS: ${Math.round(app.ticker.FPS)}`;
+                    } catch (error) {
+                        hasError = true;
+                        const errorDiv = document.getElementById('pos');
+                        errorDiv.innerHTML = `<span class="error">❌ LOOP ERROR: ${error.message}<br>Check console (F12)</span>`;
+                        console.error('%c ❌ GAME LOOP ERROR:', 'color: red; font-size: 20px; font-weight: bold', error);
+                        console.error(error.stack);
+                    }
+                });
+
+                // Initial chunk load
+                renderChunk(0, 0);
+
             } catch (error) {
-                console.error('%c ❌ GAME LOOP ERROR:', 'color: red; font-size: 20px; font-weight: bold', error);
-                console.error('%c Stack:', 'color: red', error.stack);
-                // Draw error on screen
-                ctx.fillStyle = 'black';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = 'red';
-                ctx.font = '20px monospace';
-                ctx.fillText('ERROR: ' + error.message, 20, 50);
-                ctx.fillText('Check console (F12) for details', 20, 80);
+                hasError = true;
+                const errorDiv = document.getElementById('pos');
+                errorDiv.innerHTML = `<span class="error">❌ INIT ERROR: ${error.message}<br>Check console (F12)</span>`;
+                console.error('%c ❌ INITIALIZATION ERROR:', 'color: red; font-size: 20px; font-weight: bold', error);
+                console.error(error.stack);
             }
-        }
-
-        gameLoop(performance.now());
+        }); // End window.load
     </script>
-    if (keys['a'] || keys['arrowleft']) moveX = -1;
-    if (keys['d'] || keys['arrowright']) moveX = 1;
-    if (keys['w'] || keys['arrowup']) moveY = -1;
-    if (keys['s'] || keys['arrowdown']) moveY = 1;
-
-    if (moveX !== 0 && moveY !== 0) {
-    moveX *= 0.707;
-    moveY *= 0.707;
-    }
-
-    player.x = Math.round(player.x + moveX * player.speed * dt);
-    player.y = Math.round(player.y + moveY * player.speed * dt);
-
-    // Camera follow (smooth, no rounding)
-    if (!camera.freelook) {
-    camera.x = player.x + player.width / 2 - (canvas.width / 2) / camera.zoom;
-    camera.y = player.y + player.height / 2 - (canvas.height / 2) / camera.zoom;
-    }
-
-    // RENDER
-    ctx.fillStyle = '#1a1a1a';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.save();
-    ctx.scale(camera.zoom, camera.zoom);
-
-    // Calculate visible area
-    const viewWidth = canvas.width / camera.zoom;
-    const viewHeight = canvas.height / camera.zoom;
-    const startChunkX = Math.floor((camera.x - TILE_SIZE) / CHUNK_PIXEL_SIZE);
-    const endChunkX = Math.ceil((camera.x + viewWidth + TILE_SIZE) / CHUNK_PIXEL_SIZE);
-    const startChunkY = Math.floor((camera.y - TILE_SIZE) / CHUNK_PIXEL_SIZE);
-    const endChunkY = Math.ceil((camera.y + viewHeight + TILE_SIZE) / CHUNK_PIXEL_SIZE);
-
-    // Render chunks
-    for (let cy = startChunkY; cy < endChunkY; cy++) { for (let cx=startChunkX; cx < endChunkX; cx++) { const
-        chunk=getChunk(cx, cy); const chunkBaseX=cx * CHUNK_SIZE; const chunkBaseY=cy * CHUNK_SIZE; for (let ty=0; ty <
-        CHUNK_SIZE; ty++) { for (let tx=0; tx < CHUNK_SIZE; tx++) { const worldX=chunkBaseX + tx; const
-        worldY=chunkBaseY + ty; const visualX=worldX + 0.5; const visualY=worldY + 0.5; const screenX=visualX *
-        TILE_SIZE - camera.x; const screenY=visualY * TILE_SIZE - camera.y; // Draw dirt const
-        dirtIdx=getDirtTileIndex(worldX, worldY); drawTile(ctx, dirtImg, dirtIdx, screenX, screenY); // Draw grass const
-        grassIdx=getGrassTileIndex(worldX, worldY); drawTile(ctx, grassImg, grassIdx, screenX, screenY); } } } } // Grid
-        if (camera.showGrid) { // Tile grid (red) ctx.strokeStyle='rgba(255, 0, 0, 0.3)' ; ctx.lineWidth=1 /
-        camera.zoom; const gridStartX=Math.floor(camera.x / TILE_SIZE) * TILE_SIZE; const gridStartY=Math.floor(camera.y
-        / TILE_SIZE) * TILE_SIZE; for (let x=gridStartX; x < camera.x + viewWidth; x +=TILE_SIZE) { ctx.beginPath();
-        ctx.moveTo(x - camera.x, 0); ctx.lineTo(x - camera.x, viewHeight); ctx.stroke(); } for (let y=gridStartY; y <
-        camera.y + viewHeight; y +=TILE_SIZE) { ctx.beginPath(); ctx.moveTo(0, y - camera.y); ctx.lineTo(viewWidth, y -
-        camera.y); ctx.stroke(); } // Chunk grid (blue) ctx.strokeStyle='rgba(0, 100, 255, 0.6)' ; ctx.lineWidth=3 /
-        camera.zoom; const chunkStartX=Math.floor(camera.x / CHUNK_PIXEL_SIZE) * CHUNK_PIXEL_SIZE; const
-        chunkStartY=Math.floor(camera.y / CHUNK_PIXEL_SIZE) * CHUNK_PIXEL_SIZE; for (let x=chunkStartX; x < camera.x +
-        viewWidth; x +=CHUNK_PIXEL_SIZE) { ctx.beginPath(); ctx.moveTo(x - camera.x, 0); ctx.lineTo(x - camera.x,
-        viewHeight); ctx.stroke(); } for (let y=chunkStartY; y < camera.y + viewHeight; y +=CHUNK_PIXEL_SIZE) {
-        ctx.beginPath(); ctx.moveTo(0, y - camera.y); ctx.lineTo(viewWidth, y - camera.y); ctx.stroke(); } } // Block
-        selector overlay (show which block is being hovered/edited) if (!camera.freelook && frameImg.complete) { // Use
-        WORLD grid (red grid) - NOT visual grid const mouseWorldX=mouse.x / camera.zoom + camera.x; const
-        mouseWorldY=mouse.y / camera.zoom + camera.y; const hoverWorldX=Math.floor(mouseWorldX / TILE_SIZE); const
-        hoverWorldY=Math.floor(mouseWorldY / TILE_SIZE); // Render on world grid (no 0.5 offset) const
-        hoverScreenX=hoverWorldX * TILE_SIZE - camera.x; const hoverScreenY=hoverWorldY * TILE_SIZE - camera.y; // Frame
-        0=hover, Frame 1=pressed (AUTO-DETECT layout) const frameIndex=(mouse.leftDown || mouse.rightDown) ? 1 : 0;
-        drawTileFromSheet(ctx, frameImg, frameIndex, hoverScreenX, hoverScreenY); } ctx.restore(); // Crosshair (always
-        on top) - use image if available const centerX=canvas.width / 2; const centerY=canvas.height / 2; if
-        (crosshairImg.complete) { // Draw crosshair image centered with transparency ctx.globalAlpha=0.4; // Make it
-        translucent like the original const crosshairSize=32; ctx.drawImage(crosshairImg, centerX - crosshairSize / 2,
-        centerY - crosshairSize / 2, crosshairSize, crosshairSize); ctx.globalAlpha=1.0; // Reset alpha } else { //
-        Fallback to drawn crosshair ctx.strokeStyle='rgba(200, 200, 200, 0.4)' ; ctx.lineWidth=1.5; ctx.beginPath();
-        ctx.moveTo(centerX - 6, centerY); ctx.lineTo(centerX + 6, centerY); ctx.moveTo(centerX, centerY - 6);
-        ctx.lineTo(centerX, centerY + 6); ctx.stroke(); } // Cursor (normal size) if (cursorImg.complete) {
-        ctx.drawImage(cursorImg, mouse.x - 16, mouse.y - 16, 32, 32); } // UI
-        document.getElementById('pos').textContent=`Pos: ${Math.floor(player.x)}, ${Math.floor(player.y)} | Zoom:
-        ${camera.zoom.toFixed(1)}x | Chunks: ${chunks.size}`; } gameLoop(performance.now()); </script>
 </body>
 
 </html>
