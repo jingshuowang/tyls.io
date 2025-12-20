@@ -379,9 +379,9 @@
                         const tileY = ((worldY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
 
                         if (mouse.leftDown) {
-                            chunk[tileY][tileX] = 1; // Place dirt
+                            chunk[tileY][tileX] = 0; // Remove dirt (left click)
                         } else if (mouse.rightDown) {
-                            chunk[tileY][tileX] = 0; // Remove dirt
+                            chunk[tileY][tileX] = 1; // Place dirt (right click)
                         }
 
                         // Re-render current chunk
@@ -411,7 +411,7 @@
                             const tileX = ((worldX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
                             const tileY = ((worldY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
 
-                            chunk[tileY][tileX] = 1;
+                            chunk[tileY][tileX] = 0; // Remove dirt (left click)
 
                             // Re-render current chunk
                             renderChunk(chunkX, chunkY);
@@ -437,7 +437,7 @@
                             const tileX = ((worldX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
                             const tileY = ((worldY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
 
-                            chunk[tileY][tileX] = 0;
+                            chunk[tileY][tileX] = 1; // Place dirt (right click)
 
                             // Re-render current chunk
                             renderChunk(chunkX, chunkY);
