@@ -364,34 +364,62 @@
                         camera.y -= dy;
                     }
 
-                    // Drag to place/remove blocks
+                    // Drag to place/remove blocks with line interpolation
                     if (!camera.freelook && (mouse.leftDown || mouse.rightDown)) {
                         const mouseWorldX = mouse.x / camera.zoom + camera.x;
                         const mouseWorldY = mouse.y / camera.zoom + camera.y;
-                        const worldX = Math.floor(mouseWorldX / TILE_SIZE);
-                        const worldY = Math.floor(mouseWorldY / TILE_SIZE);
+                        const currentX = Math.floor(mouseWorldX / TILE_SIZE);
+                        const currentY = Math.floor(mouseWorldY / TILE_SIZE);
 
-                        const chunkX = Math.floor(worldX / CHUNK_SIZE);
-                        const chunkY = Math.floor(worldY / CHUNK_SIZE);
-                        const chunk = getChunk(chunkX, chunkY);
+                        // Get previous position
+                        const prevWorldX = prevX / camera.zoom + camera.x;
+                        const prevWorldY = prevY / camera.zoom + camera.y;
+                        const lastX = Math.floor(prevWorldX / TILE_SIZE);
+                        const lastY = Math.floor(prevWorldY / TILE_SIZE);
 
-                        const tileX = ((worldX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-                        const tileY = ((worldY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                        // Draw line between last and current position
+                        const dx = Math.abs(currentX - lastX);
+                        const dy = Math.abs(currentY - lastY);
+                        const sx = lastX < currentX ? 1 : -1;
+                        const sy = lastY < currentY ? 1 : -1;
+                        let err = dx - dy;
+                        let x = lastX;
+                        let y = lastY;
 
-                        if (mouse.leftDown) {
-                            chunk[tileY][tileX] = 0; // Remove dirt (left click)
-                        } else if (mouse.rightDown) {
-                            chunk[tileY][tileX] = 1; // Place dirt (right click)
+                        const affectedChunks = new Set();
+
+                        while (true) {
+                            const chunkX = Math.floor(x / CHUNK_SIZE);
+                            const chunkY = Math.floor(y / CHUNK_SIZE);
+                            const chunk = getChunk(chunkX, chunkY);
+                            const tileX = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                            const tileY = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+
+                            if (mouse.leftDown) {
+                                chunk[tileY][tileX] = 0; // Remove dirt
+                            } else if (mouse.rightDown) {
+                                chunk[tileY][tileX] = 1; // Place dirt
+                            }
+
+                            // Track affected chunks
+                            affectedChunks.add(`${chunkX},${chunkY}`);
+                            if (tileX === 0) affectedChunks.add(`${chunkX - 1},${chunkY}`);
+                            if (tileX === CHUNK_SIZE - 1) affectedChunks.add(`${chunkX + 1},${chunkY}`);
+                            if (tileY === 0) affectedChunks.add(`${chunkX},${chunkY - 1}`);
+                            if (tileY === CHUNK_SIZE - 1) affectedChunks.add(`${chunkX},${chunkY + 1}`);
+
+                            if (x === currentX && y === currentY) break;
+
+                            const e2 = 2 * err;
+                            if (e2 > -dy) { err -= dy; x += sx; }
+                            if (e2 < dx) { err += dx; y += sy; }
                         }
 
-                        // Re-render current chunk
-                        renderChunk(chunkX, chunkY);
-
-                        // Re-render neighboring chunks if on edge
-                        if (tileX === 0) renderChunk(chunkX - 1, chunkY);
-                        if (tileX === CHUNK_SIZE - 1) renderChunk(chunkX + 1, chunkY);
-                        if (tileY === 0) renderChunk(chunkX, chunkY - 1);
-                        if (tileY === CHUNK_SIZE - 1) renderChunk(chunkX, chunkY + 1);
+                        // Re-render all affected chunks
+                        affectedChunks.forEach(key => {
+                            const [cx, cy] = key.split(',').map(Number);
+                            renderChunk(cx, cy);
+                        });
                     }
                 });
 
