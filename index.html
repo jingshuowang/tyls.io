@@ -290,15 +290,15 @@
                         for (let tx = 0; tx < CHUNK_SIZE; tx++) {
                             const worldX = cx * CHUNK_SIZE + tx;
                             const worldY = cy * CHUNK_SIZE + ty;
-                            const visualX = (worldX + 0.5) * TILE_SIZE; // Offset for visual grid
-                            const visualY = (worldY + 0.5) * TILE_SIZE; // Offset for visual grid
+                            const visualX = worldX * TILE_SIZE; // No offset - align with grid
+                            const visualY = worldY * TILE_SIZE; // No offset - align with grid
 
                             // Dirt sprite
                             const dirtIdx = getDirtTileIndex(worldX, worldY);
                             const dirtSprite = new PIXI.Sprite(getTileTexture(dirtTexture.baseTexture, dirtIdx));
                             dirtSprite.x = visualX;
                             dirtSprite.y = visualY;
-                            dirtSprite.anchor.set(0.5); // Center anchor for offset grid
+                            dirtSprite.anchor.set(0); // Top-left anchor to align with grid
                             dirtSprite.width = TILE_SIZE;
                             dirtSprite.height = TILE_SIZE;
                             container.addChild(dirtSprite);
@@ -308,7 +308,7 @@
                             const grassSprite = new PIXI.Sprite(getTileTexture(grassTexture.baseTexture, grassIdx));
                             grassSprite.x = visualX;
                             grassSprite.y = visualY;
-                            grassSprite.anchor.set(0.5); // Center anchor for offset grid
+                            grassSprite.anchor.set(0); // Top-left anchor to align with grid
                             grassSprite.width = TILE_SIZE;
                             grassSprite.height = TILE_SIZE;
                             container.addChild(grassSprite);
