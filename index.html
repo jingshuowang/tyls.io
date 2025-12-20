@@ -192,10 +192,11 @@
                 };
 
                 function getGrassTileIndex(x, y) {
-                    const tl = getTile(x, y);
-                    const tr = getTile(x + 1, y);
-                    const bl = getTile(x, y + 1);
-                    const br = getTile(x + 1, y + 1);
+                    // Check neighbors using MINUS (world grid reference from display position)
+                    const tl = getTile(x - 1, y - 1);
+                    const tr = getTile(x, y - 1);
+                    const bl = getTile(x - 1, y);
+                    const br = getTile(x, y);
                     const key = `${tl},${tr},${bl},${br}`;
                     return GRASS_TILE_MAP[key] !== undefined ? GRASS_TILE_MAP[key] : 6;
                 }
