@@ -405,80 +405,91 @@
         });
 
         app.ticker.add(() => {
-            if (keys['s'] || keys['arrowdown']) moveY = 1;
+            try {
+                const time = performance.now();
+                const dt = Math.min((time - lastTime) / 1000, 0.1);
+                lastTime = time;
 
-            if (moveX !== 0 && moveY !== 0) {
-                moveX *= 0.707;
-                moveY *= 0.707;
-            }
+                // Movement
+                let moveX = 0, moveY = 0;
+                if (keys['a'] || keys['arrowleft']) moveX = -1;
+                if (keys['d'] || keys['arrowright']) moveX = 1;
+                if (keys['w'] || keys['arrowup']) moveY = -1;
+                if (keys['s'] || keys['arrowdown']) moveY = 1;
 
-            player.x = Math.round(player.x + moveX * player.speed * dt);
-            player.y = Math.round(player.y + moveY * player.speed * dt);
+                if (moveX !== 0 && moveY !== 0) {
+                    moveX *= 0.707;
+                    moveY *= 0.707;
+                }
 
-            // Camera follow
-            if (!camera.freelook) {
-                camera.x = player.x + player.width / 2 - (app.screen.width / 2) / camera.zoom;
-                camera.y = player.y + player.height / 2 - (app.screen.height / 2) / camera.zoom;
-            }
+                player.x = Math.round(player.x + moveX * player.speed * dt);
+                player.y = Math.round(player.y + moveY * player.speed * dt);
 
-            // Update world container transform
-            worldContainer.x = -camera.x * camera.zoom;
-            worldContainer.y = -camera.y * camera.zoom;
-            worldContainer.scale.set(camera.zoom);
+                // Camera follow
+                if (!camera.freelook) {
+                    camera.x = player.x + player.width / 2 - (app.screen.width / 2) / camera.zoom;
+                    camera.y = player.y + player.height / 2 - (app.screen.height / 2) / camera.zoom;
+                }
 
-            // Calculate visible chunks
-            const viewWidth = app.screen.width / camera.zoom;
-            const viewHeight = app.screen.height / camera.zoom;
-            const startChunkX = Math.floor((camera.x - TILE_SIZE) / CHUNK_PIXEL_SIZE);
-            const endChunkX = Math.ceil((camera.x + viewWidth + TILE_SIZE) / CHUNK_PIXEL_SIZE);
-            const startChunkY = Math.floor((camera.y - TILE_SIZE) / CHUNK_PIXEL_SIZE);
-            const endChunkY = Math.ceil((camera.y + viewHeight + TILE_SIZE) / CHUNK_PIXEL_SIZE);
+                // Update world container transform
+                worldContainer.x = -camera.x * camera.zoom;
+                worldContainer.y = -camera.y * camera.zoom;
+                worldContainer.scale.set(camera.zoom);
 
-            // Render visible chunks
-            for (let cy = startChunkY; cy < endChunkY; cy++) {
-                for (let cx = startChunkX; cx < endChunkX; cx++) {
-                    const key = `${cx},${cy}`;
-                    if (!chunkContainers.has(key)) {
-                        renderChunk(cx, cy);
+                // Calculate visible chunks
+                const viewWidth = app.screen.width / camera.zoom;
+                const viewHeight = app.screen.height / camera.zoom;
+                const startChunkX = Math.floor((camera.x - TILE_SIZE) / CHUNK_PIXEL_SIZE);
+                const endChunkX = Math.ceil((camera.x + viewWidth + TILE_SIZE) / CHUNK_PIXEL_SIZE);
+                const startChunkY = Math.floor((camera.y - TILE_SIZE) / CHUNK_PIXEL_SIZE);
+                const endChunkY = Math.ceil((camera.y + viewHeight + TILE_SIZE) / CHUNK_PIXEL_SIZE);
+
+                // Render visible chunks
+                for (let cy = startChunkY; cy < endChunkY; cy++) {
+                    for (let cx = startChunkX; cx < endChunkX; cx++) {
+                        const key = `${cx},${cy}`;
+                        if (!chunkContainers.has(key)) {
+                            renderChunk(cx, cy);
+                        }
                     }
                 }
+
+                // Update block selector
+                if (!camera.freelook) {
+                    const mouseWorldX = mouse.x / camera.zoom + camera.x;
+                    const mouseWorldY = mouse.y / camera.zoom + camera.y;
+                    const hoverWorldX = Math.floor(mouseWorldX / TILE_SIZE);
+                    const hoverWorldY = Math.floor(mouseWorldY / TILE_SIZE);
+
+                    selectorSprite.x = hoverWorldX * TILE_SIZE;
+                    selectorSprite.y = hoverWorldY * TILE_SIZE;
+                    selectorSprite.visible = true;
+
+                    // Frame 0 = hover, Frame 1 = pressed
+                    const frameIndex = (mouse.leftDown || mouse.rightDown) ? 1 : 0;
+                    selectorSprite.texture = getTileTexture(frameTexture.baseTexture, frameIndex, 1);
+                } else {
+                    selectorSprite.visible = false;
+                }
+
+                // Update crosshair
+                crosshairSprite.x = app.screen.width / 2;
+                crosshairSprite.y = app.screen.height / 2;
+
+                // Update cursor
+                cursorSprite.x = mouse.x;
+                cursorSprite.y = mouse.y;
+
+                // UI
+                document.getElementById('pos').textContent =
+                    `Pos: ${Math.floor(player.x)}, ${Math.floor(player.y)} | Zoom: ${camera.zoom.toFixed(1)}x | Chunks: ${chunks.size} | FPS: ${Math.round(app.ticker.FPS)}`;
+            } catch (error) {
+                errorOccurred = true;
+                errorMessage = `ERROR: ${error.message}\nStack: ${error.stack}`;
+                console.error('%c ❌ GAME LOOP ERROR:', 'color: red; font-size: 20px; font-weight: bold', error);
+                console.error(error.stack);
             }
-
-            // Update block selector
-            if (!camera.freelook) {
-                const mouseWorldX = mouse.x / camera.zoom + camera.x;
-                const mouseWorldY = mouse.y / camera.zoom + camera.y;
-                const hoverWorldX = Math.floor(mouseWorldX / TILE_SIZE);
-                const hoverWorldY = Math.floor(mouseWorldY / TILE_SIZE);
-
-                selectorSprite.x = hoverWorldX * TILE_SIZE;
-                selectorSprite.y = hoverWorldY * TILE_SIZE;
-                selectorSprite.visible = true;
-
-                // Frame 0 = hover, Frame 1 = pressed
-                const frameIndex = (mouse.leftDown || mouse.rightDown) ? 1 : 0;
-                selectorSprite.texture = getTileTexture(frameTexture.baseTexture, frameIndex, 1);
-            } else {
-                selectorSprite.visible = false;
-            }
-
-            // Update crosshair
-            crosshairSprite.x = app.screen.width / 2;
-            crosshairSprite.y = app.screen.height / 2;
-
-            // Update cursor
-            cursorSprite.x = mouse.x;
-            cursorSprite.y = mouse.y;
-
-            // UI
-            document.getElementById('pos').textContent =
-                `Pos: ${Math.floor(player.x)}, ${Math.floor(player.y)} | Zoom: ${camera.zoom.toFixed(1)}x | Chunks: ${chunks.size} | FPS: ${Math.round(app.ticker.FPS)}`;
-        } catch (error) {
-            errorOccurred = true;
-            errorMessage = `ERROR: ${error.message}\nStack: ${error.stack}`;
-            console.error('%c ❌ GAME LOOP ERROR:', 'color: red; font-size: 20px; font-weight: bold', error);
-            console.error(error.stack);
-        }
+        });
 
         // Initial chunk load
         renderChunk(0, 0);
