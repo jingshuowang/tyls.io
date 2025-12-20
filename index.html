@@ -102,11 +102,23 @@
                     });
                 });
 
-                // Create main containers
+                // Create layered container system
                 const worldContainer = new PIXI.Container();
                 app.stage.addChild(worldContainer);
 
-                // UI Container (always on top)
+                // Layer 1: Tiles (bottom)
+                const tilesContainer = new PIXI.Container();
+                worldContainer.addChild(tilesContainer);
+
+                // Layer 2: Grid overlay (middle)
+                const gridContainer = new PIXI.Container();
+                worldContainer.addChild(gridContainer);
+
+                // Layer 3: Selector/highlights (top of world)
+                const overlayContainer = new PIXI.Container();
+                worldContainer.addChild(overlayContainer);
+
+                // UI Container (always on top, not affected by world transform)
                 const uiContainer = new PIXI.Container();
                 app.stage.addChild(uiContainer);
 
@@ -127,15 +139,15 @@
 
                 // Block selector sprite (frame overlay)
                 const selectorSprite = new PIXI.Sprite(getTileTexture(frameTexture.baseTexture, 0, 1));
-                selectorSprite.anchor.set(0); // No anchor - position at top-left
+                selectorSprite.anchor.set(0.5); // Center anchor to match tiles
                 selectorSprite.width = TILE_SIZE;
                 selectorSprite.height = TILE_SIZE;
-                worldContainer.addChild(selectorSprite);
+                overlayContainer.addChild(selectorSprite); // Add to overlay layer
 
                 // Grid overlay
                 const gridGraphics = new PIXI.Graphics();
                 gridGraphics.visible = false;
-                worldContainer.addChild(gridGraphics);
+                gridContainer.addChild(gridGraphics); // Add to grid layer
 
                 // Helper: Get texture from spritesheet
                 function getTileTexture(baseTexture, index, cols = 4, tileSize = 16) {
@@ -303,7 +315,7 @@
                         }
                     }
 
-                    worldContainer.addChild(container);
+                    tilesContainer.addChild(container); // Add to tiles layer
                     chunkContainers.set(key, container);
                     return container;
                 }
@@ -577,15 +589,17 @@
                             }
                         }
 
-                        // Update block selector
+                        // Update block selector (snap to world grid)
                         if (!camera.freelook) {
                             const mouseWorldX = mouse.x / camera.zoom + camera.x;
                             const mouseWorldY = mouse.y / camera.zoom + camera.y;
+                            // Snap to world grid (not visual grid)
                             const hoverWorldX = Math.floor(mouseWorldX / TILE_SIZE);
                             const hoverWorldY = Math.floor(mouseWorldY / TILE_SIZE);
 
-                            selectorSprite.x = hoverWorldX * TILE_SIZE;
-                            selectorSprite.y = hoverWorldY * TILE_SIZE;
+                            // Position selector to match tile rendering (centered with +0.5 offset)
+                            selectorSprite.x = (hoverWorldX + 0.5) * TILE_SIZE;
+                            selectorSprite.y = (hoverWorldY + 0.5) * TILE_SIZE;
                             selectorSprite.visible = true;
 
                             // Frame 0 = hover, Frame 1 = pressed
@@ -606,8 +620,8 @@
                             const startY = Math.floor(camera.y / TILE_SIZE) * TILE_SIZE;
                             const endY = Math.ceil((camera.y + viewHeight) / TILE_SIZE) * TILE_SIZE;
 
-                            // Draw tile grid (RED)
-                            gridGraphics.lineStyle(1, 0xff0000, 0.3);
+                            // Draw tile grid (RED) - thinner and more transparent
+                            gridGraphics.lineStyle(0.5, 0xff0000, 0.15);
                             gridGraphics.beginFill(0, 0);
                             for (let x = startX; x <= endX; x += TILE_SIZE) {
                                 for (let y = startY; y <= endY; y += TILE_SIZE) {
@@ -623,7 +637,7 @@
                             const startChunkY = Math.floor(camera.y / CHUNK_PIXEL_SIZE) * CHUNK_PIXEL_SIZE;
                             const endChunkY = Math.ceil((camera.y + viewHeight) / CHUNK_PIXEL_SIZE) * CHUNK_PIXEL_SIZE;
 
-                            gridGraphics.lineStyle(3, 0x0000ff, 0.6);
+                            gridGraphics.lineStyle(1.5, 0x0000ff, 0.3);
                             gridGraphics.beginFill(0, 0);
                             for (let x = startChunkX; x <= endChunkX; x += CHUNK_PIXEL_SIZE) {
                                 for (let y = startChunkY; y <= endChunkY; y += CHUNK_PIXEL_SIZE) {
@@ -632,20 +646,10 @@
                             }
                             gridGraphics.endFill();
 
-                            // CRITICAL: Bring grid to front so it's above tiles
-                            worldContainer.removeChild(gridGraphics);
-                            worldContainer.addChild(gridGraphics);
-
                             console.log('Grid drawn! showGrid:', camera.showGrid, 'visible:', gridGraphics.visible);
                             gridGraphics.visible = true;
                         } else {
                             gridGraphics.visible = false;
-                        }
-
-                        // CRITICAL: Keep selector on top
-                        if (selectorSprite.visible) {
-                            worldContainer.removeChild(selectorSprite);
-                            worldContainer.addChild(selectorSprite);
                         }
 
                         // Update crosshair
