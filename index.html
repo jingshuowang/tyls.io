@@ -125,11 +125,16 @@
                 crosshairSprite.alpha = 0.4;
                 uiContainer.addChild(crosshairSprite);
 
-                // Block selector sprite
-                const selectorSprite = new PIXI.Sprite();
+                // Block selector sprite (frame overlay)
+                const selectorSprite = new PIXI.Sprite(getTileTexture(frameTexture.baseTexture, 0, 1));
                 selectorSprite.width = TILE_SIZE;
                 selectorSprite.height = TILE_SIZE;
                 worldContainer.addChild(selectorSprite);
+
+                // Grid overlay
+                const gridGraphics = new PIXI.Graphics();
+                gridGraphics.visible = false;
+                worldContainer.addChild(gridGraphics);
 
                 // Helper: Get texture from spritesheet
                 function getTileTexture(baseTexture, index, cols = 4, tileSize = 16) {
@@ -152,12 +157,25 @@
                     return Math.floor(seededRandom(x, y) * 16);
                 }
 
-                // Grass tile mapping (FIXED: swapped 4 and 14)
+                // Grass tile mapping (CORRECTED based on actual spritesheet)
+                // Pattern format: TL,TR,BL,BR (0=dirt, 1=grass)
                 const GRASS_TILE_MAP = {
-                    '1,1,1,1': 12, '0,1,1,1': 15, '1,0,1,1': 8, '1,1,0,1': 0, '1,1,1,0': 13,
-                    '0,0,1,1': 9, '1,1,0,0': 3, '0,1,0,1': 11, '1,0,1,0': 1,
-                    '0,0,0,1': 7, '0,0,1,0': 10, '0,1,0,0': 2, '1,0,0,0': 5,
-                    '0,1,1,0': 4, '1,0,0,1': 14, '0,0,0,0': 6
+                    '1,1,1,1': 12,  // All grass = center tile
+                    '0,1,1,1': 0,   // TL missing = bottom-right curve
+                    '1,0,1,1': 2,   // TR missing = bottom-left curve
+                    '1,1,0,1': 4,   // BL missing = top-right curve
+                    '1,1,1,0': 3,   // BR missing = top-left curve
+                    '0,0,1,1': 9,   // Top missing = bottom edge
+                    '1,1,0,0': 11,  // Bottom missing = top edge
+                    '0,1,0,1': 8,   // Left missing = right edge
+                    '1,0,1,0': 1,   // Right missing = left edge
+                    '0,0,0,1': 7,   // Only BR = bottom-right corner
+                    '0,0,1,0': 10,  // Only BL = bottom-left corner
+                    '0,1,0,0': 2,   // Only TR = top-right corner
+                    '1,0,0,0': 5,   // Only TL = top-left corner
+                    '0,1,1,0': 14,  // Vertical left
+                    '1,0,0,1': 13,  // Vertical right
+                    '0,0,0,0': 6    // All dirt = dirt tile
                 };
 
                 function getGrassTileIndex(x, y) {
@@ -335,8 +353,9 @@
                 document.addEventListener('mousemove', (e) => {
                     const prevX = mouse.x;
                     const prevY = mouse.y;
-                    mouse.x = e.clientX;
-                    mouse.y = e.clientY;
+                    const rect = app.view.getBoundingClientRect();
+                    mouse.x = e.clientX - rect.left;
+                    mouse.y = e.clientY - rect.top;
 
                     if (camera.freelook && mouse.leftDown) {
                         const dx = (mouse.x - prevX) / camera.zoom;
@@ -361,11 +380,18 @@
 
                         if (mouse.leftDown) {
                             chunk[tileY][tileX] = 1; // Place dirt
-                            renderChunk(chunkX, chunkY);
                         } else if (mouse.rightDown) {
                             chunk[tileY][tileX] = 0; // Remove dirt
-                            renderChunk(chunkX, chunkY);
                         }
+
+                        // Re-render current chunk
+                        renderChunk(chunkX, chunkY);
+
+                        // Re-render neighboring chunks if on edge
+                        if (tileX === 0) renderChunk(chunkX - 1, chunkY);
+                        if (tileX === CHUNK_SIZE - 1) renderChunk(chunkX + 1, chunkY);
+                        if (tileY === 0) renderChunk(chunkX, chunkY - 1);
+                        if (tileY === CHUNK_SIZE - 1) renderChunk(chunkX, chunkY + 1);
                     }
                 });
 
@@ -386,7 +412,15 @@
                             const tileY = ((worldY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
 
                             chunk[tileY][tileX] = 1;
+
+                            // Re-render current chunk
                             renderChunk(chunkX, chunkY);
+
+                            // Re-render neighboring chunks if on edge
+                            if (tileX === 0) renderChunk(chunkX - 1, chunkY);
+                            if (tileX === CHUNK_SIZE - 1) renderChunk(chunkX + 1, chunkY);
+                            if (tileY === 0) renderChunk(chunkX, chunkY - 1);
+                            if (tileY === CHUNK_SIZE - 1) renderChunk(chunkX, chunkY + 1);
                         }
                     } else if (e.button === 2) {
                         mouse.rightDown = true;
@@ -404,7 +438,15 @@
                             const tileY = ((worldY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
 
                             chunk[tileY][tileX] = 0;
+
+                            // Re-render current chunk
                             renderChunk(chunkX, chunkY);
+
+                            // Re-render neighboring chunks if on edge
+                            if (tileX === 0) renderChunk(chunkX - 1, chunkY);
+                            if (tileX === CHUNK_SIZE - 1) renderChunk(chunkX + 1, chunkY);
+                            if (tileY === 0) renderChunk(chunkX, chunkY - 1);
+                            if (tileY === CHUNK_SIZE - 1) renderChunk(chunkX, chunkY + 1);
                         }
                     }
                 });
@@ -493,6 +535,35 @@
                             selectorSprite.texture = getTileTexture(frameTexture.baseTexture, frameIndex, 1);
                         } else {
                             selectorSprite.visible = false;
+                        }
+
+                        // Update grid
+                        if (camera.showGrid) {
+                            gridGraphics.clear();
+                            gridGraphics.lineStyle(1, 0xff0000, 0.3);
+
+                            const viewWidth = app.screen.width / camera.zoom;
+                            const viewHeight = app.screen.height / camera.zoom;
+                            const startX = Math.floor(camera.x / TILE_SIZE) * TILE_SIZE;
+                            const endX = Math.ceil((camera.x + viewWidth) / TILE_SIZE) * TILE_SIZE;
+                            const startY = Math.floor(camera.y / TILE_SIZE) * TILE_SIZE;
+                            const endY = Math.ceil((camera.y + viewHeight) / TILE_SIZE) * TILE_SIZE;
+
+                            // Vertical lines
+                            for (let x = startX; x <= endX; x += TILE_SIZE) {
+                                gridGraphics.moveTo(x, startY);
+                                gridGraphics.lineTo(x, endY);
+                            }
+
+                            // Horizontal lines
+                            for (let y = startY; y <= endY; y += TILE_SIZE) {
+                                gridGraphics.moveTo(startX, y);
+                                gridGraphics.lineTo(endX, y);
+                            }
+
+                            gridGraphics.visible = true;
+                        } else {
+                            gridGraphics.visible = false;
                         }
 
                         // Update crosshair
