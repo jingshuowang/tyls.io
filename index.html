@@ -37,8 +37,8 @@
 </head>
 
 <body>
-    <div id="ui">
-        <div id="pos"></div>
+    <div id="pos"
+        style="position: absolute; top: 10px; left: 10px; color: white; font-size: 12px; text-shadow: 1px 1px 2px black; background: rgba(0, 0, 0, 0.5); padding: 10px; border-radius: 5px; z-index: 100; font-family: monospace;">
     </div>
 
     <script>
@@ -77,12 +77,24 @@
                 const CHUNK_SIZE = 16;
                 const CHUNK_PIXEL_SIZE = CHUNK_SIZE * TILE_SIZE;
 
-                // Load textures
-                const grassTexture = PIXI.Texture.from('Assets/grass.png');
-                const dirtTexture = PIXI.Texture.from('Assets/dirt.png');
-                const frameTexture = PIXI.Texture.from('Assets/frame.png');
-                const crosshairTexture = PIXI.Texture.from('Assets/crosshair.png');
-                const cursorTexture = PIXI.Texture.from('Assets/cursor.png');
+                // Load textures with error handling
+                const grassTexture = PIXI.Texture.from('Assets/Image/Tile/grass.png');
+                const dirtTexture = PIXI.Texture.from('Assets/Image/Tile/dirt.png');
+                const frameTexture = PIXI.Texture.from('Assets/Image/frame.png');
+                const crosshairTexture = PIXI.Texture.from('Assets/Image/crosshair.png');
+                const cursorTexture = PIXI.Texture.from('Assets/Image/cursor.png');
+
+                // Display errors in red if assets fail to load
+                const assetErrors = [];
+                [grassTexture, dirtTexture, frameTexture, crosshairTexture, cursorTexture].forEach((texture, i) => {
+                    const names = ['grass.png', 'dirt.png', 'frame.png', 'crosshair.png', 'cursor.png'];
+                    texture.baseTexture.on('error', () => {
+                        const error = `❌ Failed to load: ${names[i]}`;
+                        assetErrors.push(error);
+                        document.getElementById('pos').innerHTML = `<span style="color: red; font-weight: bold;">${assetErrors.join('<br>')}</span>`;
+                        console.error(error);
+                    });
+                });
 
                 // Create main containers
                 const worldContainer = new PIXI.Container();
