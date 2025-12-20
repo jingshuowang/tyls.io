@@ -157,25 +157,25 @@
                     return Math.floor(seededRandom(x, y) * 16);
                 }
 
-                // Grass tile mapping (CORRECTED based on actual spritesheet)
-                // Pattern format: TL,TR,BL,BR (0=dirt, 1=grass)
+                // Grass tile mapping (CORRECTED based on user blueprint)
+                // Pattern format: TL,TR,BL,BR where 0=Empty(dirt), 1=Filled(grass)
                 const GRASS_TILE_MAP = {
-                    '1,1,1,1': 12,  // All grass = center tile
-                    '0,1,1,1': 0,   // TL missing = bottom-right curve
-                    '1,0,1,1': 2,   // TR missing = bottom-left curve
-                    '1,1,0,1': 4,   // BL missing = top-right curve
-                    '1,1,1,0': 3,   // BR missing = top-left curve
-                    '0,0,1,1': 9,   // Top missing = bottom edge
-                    '1,1,0,0': 11,  // Bottom missing = top edge
-                    '0,1,0,1': 8,   // Left missing = right edge
-                    '1,0,1,0': 1,   // Right missing = left edge
-                    '0,0,0,1': 7,   // Only BR = bottom-right corner
-                    '0,0,1,0': 10,  // Only BL = bottom-left corner
-                    '0,1,0,0': 2,   // Only TR = top-right corner
-                    '1,0,0,0': 5,   // Only TL = top-left corner
-                    '0,1,1,0': 14,  // Vertical left
-                    '1,0,0,1': 13,  // Vertical right
-                    '0,0,0,0': 6    // All dirt = dirt tile
+                    '0,0,0,0': 12,  // 1. The Void - all empty
+                    '1,0,0,0': 15,  // 2. Inner Corner Sharp - Top Left
+                    '0,1,0,0': 8,   // 3. Inner Corner Sharp - Top Right
+                    '0,0,1,0': 0,   // 4. Inner Corner Sharp - Bottom Left
+                    '0,0,0,1': 13,  // 5. Inner Corner Sharp - Bottom Right
+                    '1,1,0,0': 9,   // 6. Horizontal Edge - Ceiling
+                    '0,0,1,1': 3,   // 7. Horizontal Edge - Floor
+                    '1,0,1,0': 11,  // 8. Vertical Edge - Right Face
+                    '0,1,0,1': 1,   // 9. Vertical Edge - Left Face
+                    '0,1,1,0': 14,  // 10. Diagonal - Forward Slash
+                    '1,0,0,1': 4,   // 11. Diagonal - Back Slash
+                    '1,1,1,0': 7,   // 12. Outer Corner - Bottom Right cut
+                    '1,1,0,1': 10,  // 13. Outer Corner - Bottom Left cut
+                    '1,0,1,1': 2,   // 14. Outer Corner - Top Right cut
+                    '0,1,1,1': 5,   // 15. Outer Corner - Top Left cut
+                    '1,1,1,1': 6    // 16. Full Solid - all grass
                 };
 
                 function getGrassTileIndex(x, y) {
