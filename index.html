@@ -607,20 +607,13 @@
                             const startY = Math.floor(camera.y / TILE_SIZE) * TILE_SIZE;
                             const endY = Math.ceil((camera.y + viewHeight) / TILE_SIZE) * TILE_SIZE;
 
-                            // Draw vertical lines
+                            // Draw grid cells
                             for (let x = startX; x <= endX; x += TILE_SIZE) {
-                                gridGraphics.moveTo(x, startY);
-                                gridGraphics.lineTo(x, endY);
+                                for (let y = startY; y <= endY; y += TILE_SIZE) {
+                                    gridGraphics.drawRect(x, y, TILE_SIZE, TILE_SIZE);
+                                }
                             }
 
-                            // Draw horizontal lines
-                            for (let y = startY; y <= endY; y += TILE_SIZE) {
-                                gridGraphics.moveTo(startX, y);
-                                gridGraphics.lineTo(endX, y);
-                            }
-
-                            // CRITICAL: Actually draw the lines!
-                            gridGraphics.stroke();
                             gridGraphics.visible = true;
                         } else {
                             gridGraphics.visible = false;
