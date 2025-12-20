@@ -139,7 +139,7 @@
 
                 // Block selector sprite (frame overlay)
                 const selectorSprite = new PIXI.Sprite(getTileTexture(frameTexture.baseTexture, 0, 1));
-                selectorSprite.anchor.set(0); // No anchor for world grid alignment
+                selectorSprite.anchor.set(0.5); // Center anchor to match tiles
                 selectorSprite.width = TILE_SIZE;
                 selectorSprite.height = TILE_SIZE;
                 overlayContainer.addChild(selectorSprite); // Add to overlay layer
@@ -593,13 +593,13 @@
                         if (!camera.freelook) {
                             const mouseWorldX = mouse.x / camera.zoom + camera.x;
                             const mouseWorldY = mouse.y / camera.zoom + camera.y;
-                            // Account for visual offset and snap to world grid
-                            const hoverWorldX = Math.floor((mouseWorldX + TILE_SIZE / 2) / TILE_SIZE);
-                            const hoverWorldY = Math.floor((mouseWorldY + TILE_SIZE / 2) / TILE_SIZE);
+                            // Snap to world grid (tiles are centered, so no offset needed)
+                            const hoverWorldX = Math.floor(mouseWorldX / TILE_SIZE);
+                            const hoverWorldY = Math.floor(mouseWorldY / TILE_SIZE);
 
-                            // Position selector on world grid (will be centered due to anchor 0.5)
-                            selectorSprite.x = hoverWorldX * TILE_SIZE;
-                            selectorSprite.y = hoverWorldY * TILE_SIZE;
+                            // Position selector to match visual tiles (centered at +0.5)
+                            selectorSprite.x = (hoverWorldX + 0.5) * TILE_SIZE;
+                            selectorSprite.y = (hoverWorldY + 0.5) * TILE_SIZE;
                             selectorSprite.visible = true;
 
                             // Frame 0 = hover, Frame 1 = pressed
