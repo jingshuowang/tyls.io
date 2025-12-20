@@ -632,10 +632,20 @@
                             }
                             gridGraphics.endFill();
 
+                            // CRITICAL: Bring grid to front so it's above tiles
+                            worldContainer.removeChild(gridGraphics);
+                            worldContainer.addChild(gridGraphics);
+
                             console.log('Grid drawn! showGrid:', camera.showGrid, 'visible:', gridGraphics.visible);
                             gridGraphics.visible = true;
                         } else {
                             gridGraphics.visible = false;
+                        }
+
+                        // CRITICAL: Keep selector on top
+                        if (selectorSprite.visible) {
+                            worldContainer.removeChild(selectorSprite);
+                            worldContainer.addChild(selectorSprite);
                         }
 
                         // Update crosshair
