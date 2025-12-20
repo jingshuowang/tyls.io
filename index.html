@@ -529,6 +529,35 @@
                         worldContainer.y = -camera.y * camera.zoom;
                         worldContainer.scale.set(camera.zoom);
 
+                        // Continuous block placement while holding mouse button
+                        if (!camera.freelook && (mouse.leftDown || mouse.rightDown)) {
+                            const mouseWorldX = mouse.x / camera.zoom + camera.x;
+                            const mouseWorldY = mouse.y / camera.zoom + camera.y;
+                            const worldX = Math.floor(mouseWorldX / TILE_SIZE);
+                            const worldY = Math.floor(mouseWorldY / TILE_SIZE);
+
+                            const chunkX = Math.floor(worldX / CHUNK_SIZE);
+                            const chunkY = Math.floor(worldY / CHUNK_SIZE);
+                            const chunk = getChunk(chunkX, chunkY);
+                            const tileX = ((worldX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                            const tileY = ((worldY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+
+                            const currentValue = chunk[tileY][tileX];
+                            const newValue = mouse.leftDown ? 0 : 1;
+
+                            // Only update if value changed
+                            if (currentValue !== newValue) {
+                                chunk[tileY][tileX] = newValue;
+
+                                // Re-render affected chunks
+                                renderChunk(chunkX, chunkY);
+                                if (tileX === 0) renderChunk(chunkX - 1, chunkY);
+                                if (tileX === CHUNK_SIZE - 1) renderChunk(chunkX + 1, chunkY);
+                                if (tileY === 0) renderChunk(chunkX, chunkY - 1);
+                                if (tileY === CHUNK_SIZE - 1) renderChunk(chunkX, chunkY + 1);
+                            }
+                        }
+
                         // Calculate visible chunks
                         const viewWidth = app.screen.width / camera.zoom;
                         const viewHeight = app.screen.height / camera.zoom;
@@ -568,7 +597,7 @@
                         // Update grid
                         if (camera.showGrid) {
                             gridGraphics.clear();
-                            gridGraphics.lineStyle(1, 0xff0000, 0.3);
+                            gridGraphics.lineStyle(2, 0xff0000, 0.8); // Thicker, more opaque red lines
 
                             const viewWidth = app.screen.width / camera.zoom;
                             const viewHeight = app.screen.height / camera.zoom;
