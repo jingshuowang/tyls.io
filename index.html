@@ -594,8 +594,8 @@
                             const mouseWorldX = mouse.x / camera.zoom + camera.x;
                             const mouseWorldY = mouse.y / camera.zoom + camera.y;
                             // Account for visual offset and snap to world grid
-                            const hoverWorldX = Math.floor((mouseWorldX - TILE_SIZE / 2) / TILE_SIZE);
-                            const hoverWorldY = Math.floor((mouseWorldY - TILE_SIZE / 2) / TILE_SIZE);
+                            const hoverWorldX = Math.floor((mouseWorldX + TILE_SIZE / 2) / TILE_SIZE);
+                            const hoverWorldY = Math.floor((mouseWorldY + TILE_SIZE / 2) / TILE_SIZE);
 
                             // Position selector on world grid (will be centered due to anchor 0.5)
                             selectorSprite.x = hoverWorldX * TILE_SIZE;
@@ -631,19 +631,20 @@
                             }
                             gridGraphics.endFill();
 
-                            // Draw chunk grid (BLUE)
+                            // Draw chunk grid (BLUE) - align with tile grid
                             const CHUNK_PIXEL_SIZE = CHUNK_SIZE * TILE_SIZE;
-                            const startChunkX = Math.floor(camera.x / CHUNK_PIXEL_SIZE) * CHUNK_PIXEL_SIZE;
-                            const endChunkX = Math.ceil((camera.x + viewWidth) / CHUNK_PIXEL_SIZE) * CHUNK_PIXEL_SIZE;
-                            const startChunkY = Math.floor(camera.y / CHUNK_PIXEL_SIZE) * CHUNK_PIXEL_SIZE;
-                            const endChunkY = Math.ceil((camera.y + viewHeight) / CHUNK_PIXEL_SIZE) * CHUNK_PIXEL_SIZE;
+                            // Calculate in tile space, then convert to pixels
+                            const startChunkTileX = Math.floor(camera.x / CHUNK_PIXEL_SIZE) * CHUNK_SIZE;
+                            const endChunkTileX = Math.ceil((camera.x + viewWidth) / CHUNK_PIXEL_SIZE) * CHUNK_SIZE;
+                            const startChunkTileY = Math.floor(camera.y / CHUNK_PIXEL_SIZE) * CHUNK_SIZE;
+                            const endChunkTileY = Math.ceil((camera.y + viewHeight) / CHUNK_PIXEL_SIZE) * CHUNK_SIZE;
 
                             gridGraphics.lineStyle(1.5, 0x0000ff, 0.3);
                             gridGraphics.beginFill(0, 0);
-                            for (let x = startChunkX; x <= endChunkX; x += CHUNK_PIXEL_SIZE) {
-                                for (let y = startChunkY; y <= endChunkY; y += CHUNK_PIXEL_SIZE) {
-                                    // Draw on world grid
-                                    gridGraphics.drawRect(x, y, CHUNK_PIXEL_SIZE, CHUNK_PIXEL_SIZE);
+                            for (let x = startChunkTileX; x <= endChunkTileX; x += CHUNK_SIZE) {
+                                for (let y = startChunkTileY; y <= endChunkTileY; y += CHUNK_SIZE) {
+                                    // Draw on world grid (tile coordinates * TILE_SIZE)
+                                    gridGraphics.drawRect(x * TILE_SIZE, y * TILE_SIZE, CHUNK_PIXEL_SIZE, CHUNK_PIXEL_SIZE);
                                 }
                             }
                             gridGraphics.endFill();
