@@ -13,6 +13,8 @@
             background: #000;
             overflow: hidden;
             font-family: monospace;
+            cursor: none;
+            /* Hide system cursor */
         }
 
         #ui {
@@ -63,9 +65,13 @@
                     backgroundColor: 0x1a1a1a,
                     resolution: window.devicePixelRatio || 1,
                     autoDensity: true,
-                    antialias: false
+                    antialias: false // Disable for pixel-perfect rendering
                 });
                 document.body.appendChild(app.view);
+
+                // Force pixel-perfect rendering
+                app.renderer.view.style.imageRendering = 'pixelated';
+                app.renderer.view.style.imageRendering = 'crisp-edges';
 
                 // Handle window resize
                 window.addEventListener('resize', () => {
@@ -146,12 +152,12 @@
                     return Math.floor(seededRandom(x, y) * 16);
                 }
 
-                // Grass tile mapping
+                // Grass tile mapping (FIXED: swapped 4 and 14)
                 const GRASS_TILE_MAP = {
                     '1,1,1,1': 12, '0,1,1,1': 15, '1,0,1,1': 8, '1,1,0,1': 0, '1,1,1,0': 13,
                     '0,0,1,1': 9, '1,1,0,0': 3, '0,1,0,1': 11, '1,0,1,0': 1,
                     '0,0,0,1': 7, '0,0,1,0': 10, '0,1,0,0': 2, '1,0,0,0': 5,
-                    '0,1,1,0': 14, '1,0,0,1': 4, '0,0,0,0': 6
+                    '0,1,1,0': 4, '1,0,0,1': 14, '0,0,0,0': 6
                 };
 
                 function getGrassTileIndex(x, y) {
