@@ -381,14 +381,15 @@
                     if (!camera.freelook && (mouse.leftDown || mouse.rightDown)) {
                         const mouseWorldX = mouse.x / camera.zoom + camera.x;
                         const mouseWorldY = mouse.y / camera.zoom + camera.y;
-                        const currentX = Math.floor(mouseWorldX / TILE_SIZE);
-                        const currentY = Math.floor(mouseWorldY / TILE_SIZE);
+                        // Account for visual offset (same as selector)
+                        const currentX = Math.floor((mouseWorldX - TILE_SIZE / 2) / TILE_SIZE);
+                        const currentY = Math.floor((mouseWorldY - TILE_SIZE / 2) / TILE_SIZE);
 
                         // Get previous position
                         const prevWorldX = prevX / camera.zoom + camera.x;
                         const prevWorldY = prevY / camera.zoom + camera.y;
-                        const lastX = Math.floor(prevWorldX / TILE_SIZE);
-                        const lastY = Math.floor(prevWorldY / TILE_SIZE);
+                        const lastX = Math.floor((prevWorldX - TILE_SIZE / 2) / TILE_SIZE);
+                        const lastY = Math.floor((prevWorldY - TILE_SIZE / 2) / TILE_SIZE);
 
                         // Draw line between last and current position
                         const dx = Math.abs(currentX - lastX);
@@ -546,8 +547,9 @@
                         if (!camera.freelook && (mouse.leftDown || mouse.rightDown)) {
                             const mouseWorldX = mouse.x / camera.zoom + camera.x;
                             const mouseWorldY = mouse.y / camera.zoom + camera.y;
-                            const worldX = Math.floor(mouseWorldX / TILE_SIZE);
-                            const worldY = Math.floor(mouseWorldY / TILE_SIZE);
+                            // Account for visual offset (same as selector)
+                            const worldX = Math.floor((mouseWorldX - TILE_SIZE / 2) / TILE_SIZE);
+                            const worldY = Math.floor((mouseWorldY - TILE_SIZE / 2) / TILE_SIZE);
 
                             const chunkX = Math.floor(worldX / CHUNK_SIZE);
                             const chunkY = Math.floor(worldY / CHUNK_SIZE);
