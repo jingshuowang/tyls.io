@@ -292,21 +292,21 @@
                             const worldX = cx * CHUNK_SIZE + tx;
                             const worldY = cy * CHUNK_SIZE + ty;
 
-                            // Dirt sprite - world grid (perfect)
+                            // Dirt sprite - world grid (Y-up: negate Y)
                             const dirtIdx = getDirtTileIndex(worldX, worldY);
                             const dirtSprite = new PIXI.Sprite(getTileTexture(dirtTexture.baseTexture, dirtIdx));
                             dirtSprite.x = worldX * TILE_SIZE;
-                            dirtSprite.y = worldY * TILE_SIZE;
+                            dirtSprite.y = -worldY * TILE_SIZE; // Flip Y
                             dirtSprite.anchor.set(0);
                             dirtSprite.width = TILE_SIZE;
                             dirtSprite.height = TILE_SIZE;
                             container.addChild(dirtSprite);
 
-                            // Grass sprite - render at world grid, but texture uses visual grid
+                            // Grass sprite - world grid (Y-up: negate Y)
                             const grassIdx = getGrassTileIndex(worldX, worldY);
                             const grassSprite = new PIXI.Sprite(getTileTexture(grassTexture.baseTexture, grassIdx));
                             grassSprite.x = worldX * TILE_SIZE;
-                            grassSprite.y = worldY * TILE_SIZE;
+                            grassSprite.y = -worldY * TILE_SIZE; // Flip Y
                             grassSprite.anchor.set(0);
                             grassSprite.width = TILE_SIZE;
                             grassSprite.height = TILE_SIZE;
@@ -530,15 +530,15 @@
                         player.x = Math.round(player.x + moveX * player.speed * dt);
                         player.y = Math.round(player.y + moveY * player.speed * dt);
 
-                        // Camera follow
+                        // Camera follow (Y-up: negate Y)
                         if (!camera.freelook) {
                             camera.x = player.x + player.width / 2 - (app.screen.width / 2) / camera.zoom;
-                            camera.y = player.y + player.height / 2 - (app.screen.height / 2) / camera.zoom;
+                            camera.y = -(player.y + player.height / 2 - (app.screen.height / 2) / camera.zoom);
                         }
 
-                        // Update world container transform
+                        // Update world container transform (Y-up: negate Y)
                         worldContainer.x = -camera.x * camera.zoom;
-                        worldContainer.y = -camera.y * camera.zoom;
+                        worldContainer.y = camera.y * camera.zoom; // Flip Y
                         worldContainer.scale.set(camera.zoom);
 
                         // Continuous block placement while holding mouse button
@@ -591,14 +591,14 @@
                         // Update block selector (snap to world grid where blocks are placed)
                         if (!camera.freelook) {
                             const mouseWorldX = mouse.x / camera.zoom + camera.x;
-                            const mouseWorldY = mouse.y / camera.zoom + camera.y;
+                            const mouseWorldY = -(mouse.y / camera.zoom - camera.y); // Flip Y
                             // Snap to world grid for data
                             const hoverWorldX = Math.floor(mouseWorldX / TILE_SIZE);
                             const hoverWorldY = Math.floor(mouseWorldY / TILE_SIZE);
 
-                            // Position selector on world grid
+                            // Position selector on world grid (Y-up: negate Y)
                             selectorSprite.x = hoverWorldX * TILE_SIZE;
-                            selectorSprite.y = hoverWorldY * TILE_SIZE;
+                            selectorSprite.y = -hoverWorldY * TILE_SIZE; // Flip Y
                             selectorSprite.visible = true;
 
                             // Frame 0 = hover, Frame 1 = pressed
@@ -619,18 +619,18 @@
                             const startY = Math.floor(camera.y / TILE_SIZE) * TILE_SIZE;
                             const endY = Math.ceil((camera.y + viewHeight) / TILE_SIZE) * TILE_SIZE;
 
-                            // Draw tile grid (RED)
+                            // Draw tile grid (RED) - Y-up: negate Y
                             gridGraphics.lineStyle(0.5, 0xff0000, 0.15);
                             gridGraphics.beginFill(0, 0);
                             for (let x = startX; x <= endX; x += TILE_SIZE) {
                                 for (let y = startY; y <= endY; y += TILE_SIZE) {
-                                    // Draw on world grid
-                                    gridGraphics.drawRect(x, y, TILE_SIZE, TILE_SIZE);
+                                    // Draw on world grid (Y-up: negate Y)
+                                    gridGraphics.drawRect(x, -y, TILE_SIZE, TILE_SIZE);
                                 }
                             }
                             gridGraphics.endFill();
 
-                            // Draw chunk grid (BLUE)
+                            // Draw chunk grid (BLUE) - Y-up: negate Y
                             const CHUNK_PIXEL_SIZE = CHUNK_SIZE * TILE_SIZE;
                             const startChunkX = Math.floor(camera.x / CHUNK_PIXEL_SIZE) * CHUNK_PIXEL_SIZE;
                             const endChunkX = Math.ceil((camera.x + viewWidth) / CHUNK_PIXEL_SIZE) * CHUNK_PIXEL_SIZE;
@@ -641,8 +641,8 @@
                             gridGraphics.beginFill(0, 0);
                             for (let x = startChunkX; x <= endChunkX; x += CHUNK_PIXEL_SIZE) {
                                 for (let y = startChunkY; y <= endChunkY; y += CHUNK_PIXEL_SIZE) {
-                                    // Draw on world grid
-                                    gridGraphics.drawRect(x, y, CHUNK_PIXEL_SIZE, CHUNK_PIXEL_SIZE);
+                                    // Draw on world grid (Y-up: negate Y)
+                                    gridGraphics.drawRect(x, -y, CHUNK_PIXEL_SIZE, CHUNK_PIXEL_SIZE);
                                 }
                             }
                             gridGraphics.endFill();
