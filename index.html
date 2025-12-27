@@ -302,12 +302,13 @@
                             dirtSprite.height = TILE_SIZE;
                             container.addChild(dirtSprite);
 
-                            // Grass sprite - visual grid (+0.5 offset, anchor at top-left)
+                            // Grass sprite - dual-grid (center at grid intersection)
                             const grassIdx = getGrassTileIndex(worldX, worldY);
                             const grassSprite = new PIXI.Sprite(getTileTexture(grassTexture.baseTexture, grassIdx));
+                            // Center sprite at grid intersection
                             grassSprite.x = (worldX + 0.5) * TILE_SIZE;
                             grassSprite.y = (worldY + 0.5) * TILE_SIZE;
-                            grassSprite.anchor.set(0); // Top-left anchor so full texture shows
+                            grassSprite.anchor.set(0.5); // Center anchor
                             grassSprite.width = TILE_SIZE;
                             grassSprite.height = TILE_SIZE;
                             container.addChild(grassSprite);
