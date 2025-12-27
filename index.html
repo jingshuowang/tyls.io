@@ -192,11 +192,11 @@
                 };
 
                 function getGrassTileIndex(x, y) {
-                    // Since grass is offset +0.5, check neighbors at -1 instead of +1
-                    const tl = getTile(x - 1, y - 1);
-                    const tr = getTile(x, y - 1);
-                    const bl = getTile(x - 1, y);
-                    const br = getTile(x, y);
+                    // Use visual grid coordinates (offset) for neighbor detection
+                    const tl = getTile(x, y);
+                    const tr = getTile(x + 1, y);
+                    const bl = getTile(x, y + 1);
+                    const br = getTile(x + 1, y + 1);
                     const key = `${tl},${tr},${bl},${br}`;
                     return GRASS_TILE_MAP[key] !== undefined ? GRASS_TILE_MAP[key] : 6;
                 }
@@ -302,11 +302,11 @@
                             dirtSprite.height = TILE_SIZE;
                             container.addChild(dirtSprite);
 
-                            // Grass sprite - offset +0.5 to fix northwest issue
+                            // Grass sprite - render at world grid, but texture uses visual grid
                             const grassIdx = getGrassTileIndex(worldX, worldY);
                             const grassSprite = new PIXI.Sprite(getTileTexture(grassTexture.baseTexture, grassIdx));
-                            grassSprite.x = worldX * TILE_SIZE + (TILE_SIZE * 0.5);
-                            grassSprite.y = worldY * TILE_SIZE + (TILE_SIZE * 0.5);
+                            grassSprite.x = worldX * TILE_SIZE;
+                            grassSprite.y = worldY * TILE_SIZE;
                             grassSprite.anchor.set(0);
                             grassSprite.width = TILE_SIZE;
                             grassSprite.height = TILE_SIZE;
