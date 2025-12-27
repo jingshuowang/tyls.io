@@ -69,9 +69,18 @@
                 });
                 document.body.appendChild(app.view);
 
-                // Force pixel-perfect rendering
+                // Pixel-perfect rendering settings (CRITICAL for crisp pixels)
+                PIXI.settings.SCALE_MODE = PIXI.SCALE_MODES.NEAREST;
+                PIXI.settings.ROUND_PIXELS = true;
                 app.renderer.view.style.imageRendering = 'pixelated';
                 app.renderer.view.style.imageRendering = 'crisp-edges';
+
+                // Disable antialiasing for sharp pixels
+                app.renderer.plugins.interaction.resolution = 1;
+
+                // Limit FPS to 60 for stable performance
+                app.ticker.maxFPS = 60;
+                app.ticker.minFPS = 60;
 
                 // Handle window resize
                 window.addEventListener('resize', () => {
@@ -278,11 +287,9 @@
                 function renderChunk(cx, cy) {
                     const key = `${cx},${cy}`;
 
-                    // Remove old container if exists
+                    // Return existing chunk if already rendered (PERFORMANCE FIX)
                     if (chunkContainers.has(key)) {
-                        const oldContainer = chunkContainers.get(key);
-                        worldContainer.removeChild(oldContainer);
-                        oldContainer.destroy({ children: true });
+                        return chunkContainers.get(key);
                     }
 
                     const chunk = getChunk(cx, cy);
@@ -329,6 +336,22 @@
                     tilesContainer.addChild(container); // Add to tiles layer
                     chunkContainers.set(key, container);
                     return container;
+                }
+
+                // Update chunk (force re-render when blocks change)
+                function updateChunk(cx, cy) {
+                    const key = `${cx},${cy}`;
+
+                    // Remove old chunk if exists
+                    if (chunkContainers.has(key)) {
+                        const oldContainer = chunkContainers.get(key);
+                        tilesContainer.removeChild(oldContainer);
+                        oldContainer.destroy({ children: true });
+                        chunkContainers.delete(key);
+                    }
+
+                    // Re-render
+                    renderChunk(cx, cy);
                 }
 
                 // Player
@@ -573,12 +596,12 @@
                             if (currentValue !== newValue) {
                                 chunk[tileY][tileX] = newValue;
 
-                                // Re-render affected chunks
-                                renderChunk(chunkX, chunkY);
-                                if (tileX === 0) renderChunk(chunkX - 1, chunkY);
-                                if (tileX === CHUNK_SIZE - 1) renderChunk(chunkX + 1, chunkY);
-                                if (tileY === 0) renderChunk(chunkX, chunkY - 1);
-                                if (tileY === CHUNK_SIZE - 1) renderChunk(chunkX, chunkY + 1);
+                                // Re-render affected chunks (use updateChunk to force re-render)
+                                updateChunk(chunkX, chunkY);
+                                if (tileX === 0) updateChunk(chunkX - 1, chunkY);
+                                if (tileX === CHUNK_SIZE - 1) updateChunk(chunkX + 1, chunkY);
+                                if (tileY === 0) updateChunk(chunkX, chunkY - 1);
+                                if (tileY === CHUNK_SIZE - 1) updateChunk(chunkX, chunkY + 1);
                             }
                         }
 
