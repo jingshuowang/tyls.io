@@ -311,6 +311,17 @@
                             grassSprite.width = TILE_SIZE;
                             grassSprite.height = TILE_SIZE;
                             container.addChild(grassSprite);
+
+                            // Debug: show actual world grid position (only if grass exists)
+                            if (getTile(worldX, worldY) === 0) { // 0 = grass
+                                const debugRect = new PIXI.Graphics();
+                                debugRect.beginFill(0x00ff00, 0.3); // Translucent green
+                                debugRect.drawRect(worldX * TILE_SIZE, worldY * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                                debugRect.endFill();
+                                debugRect.visible = false; // Will be toggled with grid
+                                debugRect.name = 'grassDebug'; // Tag for toggling
+                                container.addChild(debugRect);
+                            }
                         }
                     }
 
