@@ -302,7 +302,7 @@
                             dirtSprite.height = TILE_SIZE;
                             container.addChild(dirtSprite);
 
-                            // Grass sprite - dual-grid display (+0.5 offset)
+                            // Grass sprite - VISUAL GRID (+0.5 offset)
                             const grassIdx = getGrassTileIndex(worldX, worldY);
                             const grassSprite = new PIXI.Sprite(getTileTexture(grassTexture.baseTexture, grassIdx));
                             grassSprite.x = (worldX + 0.5) * TILE_SIZE;
@@ -312,14 +312,12 @@
                             grassSprite.height = TILE_SIZE;
                             container.addChild(grassSprite);
 
-                            // Debug: show actual world grid position (only if grass exists)
-                            if (getTile(worldX, worldY) === 0) { // 0 = grass
+                            // Debug: show world grid position for dirt blocks
+                            if (getTile(worldX, worldY) === 1) { // 1 = dirt
                                 const debugRect = new PIXI.Graphics();
-                                debugRect.beginFill(0x00ff00, 0.3); // Translucent green
+                                debugRect.beginFill(0x00ff00, 0.2); // Light green shade
                                 debugRect.drawRect(worldX * TILE_SIZE, worldY * TILE_SIZE, TILE_SIZE, TILE_SIZE);
                                 debugRect.endFill();
-                                debugRect.visible = false; // Will be toggled with grid
-                                debugRect.name = 'grassDebug'; // Tag for toggling
                                 container.addChild(debugRect);
                             }
                         }
