@@ -292,7 +292,7 @@
                             const worldX = cx * CHUNK_SIZE + tx;
                             const worldY = cy * CHUNK_SIZE + ty;
 
-                            // Dirt sprite - world grid (data layer, not displayed in dual-grid)
+                            // Dirt sprite - world grid
                             const dirtIdx = getDirtTileIndex(worldX, worldY);
                             const dirtSprite = new PIXI.Sprite(getTileTexture(dirtTexture.baseTexture, dirtIdx));
                             dirtSprite.x = worldX * TILE_SIZE;
@@ -302,13 +302,13 @@
                             dirtSprite.height = TILE_SIZE;
                             container.addChild(dirtSprite);
 
-                            // Grass sprite - DISPLAY GRID (offset by +0.5 tiles)
+                            // Grass sprite - dual-grid display (offset +0.5)
                             const grassIdx = getGrassTileIndex(worldX, worldY);
                             const grassSprite = new PIXI.Sprite(getTileTexture(grassTexture.baseTexture, grassIdx));
-                            // Offset by half a tile for dual-grid display
+                            // Offset by +0.5 tiles so edges align with world grid
                             grassSprite.x = (worldX + 0.5) * TILE_SIZE;
                             grassSprite.y = (worldY + 0.5) * TILE_SIZE;
-                            grassSprite.anchor.set(0.5); // Center anchor for offset positioning
+                            grassSprite.anchor.set(0.5); // Center anchor
                             grassSprite.width = TILE_SIZE;
                             grassSprite.height = TILE_SIZE;
                             container.addChild(grassSprite);
