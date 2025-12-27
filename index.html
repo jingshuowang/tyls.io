@@ -192,8 +192,13 @@
                 };
 
                 function getGrassTileIndex(x, y) {
-                    // TEST: always return tile 0
-                    return 0;
+                    // Dual-grid: check neighbors at world grid positions
+                    const tl = getTile(x, y);
+                    const tr = getTile(x + 1, y);
+                    const bl = getTile(x, y + 1);
+                    const br = getTile(x + 1, y + 1);
+                    const key = `${tl},${tr},${bl},${br}`;
+                    return GRASS_TILE_MAP[key] !== undefined ? GRASS_TILE_MAP[key] : 6;
                 }
 
                 // Perlin noise
@@ -297,12 +302,12 @@
                             dirtSprite.height = TILE_SIZE;
                             container.addChild(dirtSprite);
 
-                            // Grass sprite - EXACT same position as dirt
+                            // Grass sprite - dual-grid display (+0.5 offset)
                             const grassIdx = getGrassTileIndex(worldX, worldY);
                             const grassSprite = new PIXI.Sprite(getTileTexture(grassTexture.baseTexture, grassIdx));
-                            grassSprite.x = worldX * TILE_SIZE;
-                            grassSprite.y = worldY * TILE_SIZE;
-                            grassSprite.anchor.set(0);
+                            grassSprite.x = (worldX + 0.5) * TILE_SIZE;
+                            grassSprite.y = (worldY + 0.5) * TILE_SIZE;
+                            grassSprite.anchor.set(0.5);
                             grassSprite.width = TILE_SIZE;
                             grassSprite.height = TILE_SIZE;
                             container.addChild(grassSprite);
