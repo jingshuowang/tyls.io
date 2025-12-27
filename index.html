@@ -300,35 +300,28 @@
                             const worldX = cx * CHUNK_SIZE + tx;
                             const worldY = cy * CHUNK_SIZE + ty;
 
-                            // Dirt sprite
-                            const dirtIdx = getDirtTileIndex(worldX, worldY);
-                            const dirtSprite = new PIXI.Sprite(getTileTexture(dirtTexture.baseTexture, dirtIdx));
-                            dirtSprite.x = worldX * TILE_SIZE;
-                            dirtSprite.y = worldY * TILE_SIZE;
-                            dirtSprite.anchor.set(0);
-                            dirtSprite.width = TILE_SIZE;
-                            dirtSprite.height = TILE_SIZE;
-                            container.addChild(dirtSprite);
+                            const tileValue = getTile(worldX, worldY);
 
-                            // Grass sprite - dual-grid (center at grid intersection)
-                            const grassIdx = getGrassTileIndex(worldX, worldY);
-                            const grassSprite = new PIXI.Sprite(getTileTexture(grassTexture.baseTexture, grassIdx));
-                            // Center sprite at grid intersection
-                            grassSprite.x = (worldX + 0.5) * TILE_SIZE;
-                            grassSprite.y = (worldY + 0.5) * TILE_SIZE;
-                            grassSprite.anchor.set(0.5); // Center anchor
-                            grassSprite.width = TILE_SIZE;
-                            grassSprite.height = TILE_SIZE;
-                            container.addChild(grassSprite);
-
-                            // Debug: show world grid position for DIRT blocks (only in grid mode)
-                            if (getTile(worldX, worldY) === 1) { // 1 = dirt
-                                const debugRect = new PIXI.Graphics();
-                                debugRect.beginFill(0x00ff00, 0.3); // Light green shade
-                                debugRect.drawRect(worldX * TILE_SIZE, worldY * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                                debugRect.endFill();
-                                debugRect.name = 'dirtDebug';
-                                gridContainer.addChild(debugRect); // Add to grid layer so it toggles with grid
+                            if (tileValue === 0) {
+                                // Grass tile - render grass texture
+                                const grassIdx = getGrassTileIndex(worldX, worldY);
+                                const grassSprite = new PIXI.Sprite(getTileTexture(grassTexture.baseTexture, grassIdx));
+                                grassSprite.x = worldX * TILE_SIZE;
+                                grassSprite.y = worldY * TILE_SIZE;
+                                grassSprite.anchor.set(0);
+                                grassSprite.width = TILE_SIZE;
+                                grassSprite.height = TILE_SIZE;
+                                container.addChild(grassSprite);
+                            } else {
+                                // Dirt tile - render dirt texture
+                                const dirtIdx = getDirtTileIndex(worldX, worldY);
+                                const dirtSprite = new PIXI.Sprite(getTileTexture(dirtTexture.baseTexture, dirtIdx));
+                                dirtSprite.x = worldX * TILE_SIZE;
+                                dirtSprite.y = worldY * TILE_SIZE;
+                                dirtSprite.anchor.set(0);
+                                dirtSprite.width = TILE_SIZE;
+                                dirtSprite.height = TILE_SIZE;
+                                container.addChild(dirtSprite);
                             }
                         }
                     }
