@@ -327,9 +327,10 @@
                         camera.x += moveX * player.speed * dt;
                         camera.y += moveY * player.speed * dt;
                     } else {
-                        // Normal mode: camera follows player (centered on screen)
-                        camera.x = player.x - (app.screen.width / 2) / camera.zoom;
-                        camera.y = player.y - (app.screen.height / 2) / camera.zoom;
+                        // Normal mode: camera follows player (player centered on screen)
+                        // Camera x,y represents the world coordinates at the top-left of the screen
+                        camera.x = player.x + player.width / 2 - (app.screen.width / 2) / camera.zoom;
+                        camera.y = player.y + player.height / 2 - (app.screen.height / 2) / camera.zoom;
                     }
 
                     // Update stats (simplified: FPS and location only)
@@ -346,10 +347,10 @@
                     render();
                     renderOverlays();
 
-                    // Transform world
+                    // Transform world (camera system)
                     world.scale.set(camera.zoom);
-                    world.x = -camera.x * camera.zoom + app.screen.width / 2;
-                    world.y = -camera.y * camera.zoom + app.screen.height / 2;
+                    world.x = -camera.x * camera.zoom;
+                    world.y = -camera.y * camera.zoom;
 
                     // Clear previous UI overlays (keep world container)
                     while (app.stage.children.length > 1) {

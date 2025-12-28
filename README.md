@@ -88,6 +88,7 @@
 7. use my special cursor :D.
 8. i can see that the tiles are good tile the tile coding is correct but u need world genration because its just infinite goofy ahh tiles.
 9. it wen aw snap after a while.
-on top left corner show number of chunks rendered. if its not in render distance no need to render it just keep it in memory. dont load chunks that are not in render distance. and dont load after the game strats the world is built before the game even starts in the laoding screen and after the whole world is build then start it. we can just have 100 chunks rendered for niow and render distance is 5 chunks away from the player.
+on top left corner show number of chunks rendered. if its not in render distance no need to render it just keep it in memory. dont load chunks that are not in render distance. and dont load after the game strats the world is built before the game even starts in the laoding screen and after the whole world is build then start it. we can just have 100 chunks rendered for niow and render distance is based on camera size and chunk size(8x8) away from the player. later unlaoded chunks will be fog and would be loaded when player gets close to it. unlaoded ones arew kept in worldfil, just not rendered.
 10. gmae loop is not ideal use this transcript: ok i coundt get it. its like this input, update, render
+11. enchance block placement/obleteration. it isnt connected now and iosnt smooth. it should be reallu smooth like last timne when we smoothened it it connects the 2 points that are loaded if it detects a part not loaded. so it should not be separated like more conneted and firm. same for destroying. and fix this bug. soemtimes when i press left/right it it gets inverted for somne reason. 
 
