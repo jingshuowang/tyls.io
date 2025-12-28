@@ -257,7 +257,7 @@
                             const worldX = cx * CHUNK_SIZE + x;
                             const worldY = cy * CHUNK_SIZE + y;
                             const noise = perlin.noise(worldX * 0.05, worldY * 0.05);
-                            tiles[y][x] = noise > 0.1 ? 0 : 1; // 0=grass, 1=dirt
+                            tiles[y][x] = noise > 0.1 ? 0 : 1; // 0=dirt (empty), 1=grass (full)
                         }
                     }
                     return tiles;
@@ -298,36 +298,21 @@
                             const worldY = cy * CHUNK_SIZE + ty;
                             const tileValue = getTile(worldX, worldY);
 
-                            if (tileValue === 0) {
-                                // Grass tile - render dirt background then grass on top
-                                const dirtIdx = getDirtTileIndex(worldX, worldY);
-                                const dirtSprite = new PIXI.Sprite(getTileTexture(dirtTexture.baseTexture, dirtIdx));
-                                dirtSprite.x = worldX * TILE_SIZE;
-                                dirtSprite.y = worldY * TILE_SIZE;
-                                dirtSprite.anchor.set(0);
-                                dirtSprite.width = TILE_SIZE;
-                                dirtSprite.height = TILE_SIZE;
-                                container.addChild(dirtSprite);
+                            // Always render dirt
+                            const dirtSprite = new PIXI.Sprite(dirtTexture);
+                            dirtSprite.x = worldX * TILE_SIZE;
+                            dirtSprite.y = worldY * TILE_SIZE;
+                            dirtSprite.width = TILE_SIZE;
+                            dirtSprite.height = TILE_SIZE;
+                            container.addChild(dirtSprite);
 
-                                // Grass on top with offset for dual-grid
-                                const grassIdx = getGrassTileIndex(worldX, worldY);
-                                const grassSprite = new PIXI.Sprite(getTileTexture(grassTexture.baseTexture, grassIdx));
-                                grassSprite.x = (worldX + 0.5) * TILE_SIZE;
-                                grassSprite.y = (worldY + 0.5) * TILE_SIZE;
-                                grassSprite.anchor.set(0.5);
-                                grassSprite.width = TILE_SIZE;
-                                grassSprite.height = TILE_SIZE;
-                                container.addChild(grassSprite);
-                            } else {
-                                // Dirt tile - just render dirt
-                                const dirtIdx = getDirtTileIndex(worldX, worldY);
-                                const dirtSprite = new PIXI.Sprite(getTileTexture(dirtTexture.baseTexture, dirtIdx));
-                                dirtSprite.x = worldX * TILE_SIZE;
-                                dirtSprite.y = worldY * TILE_SIZE;
-                                dirtSprite.anchor.set(0);
-                                dirtSprite.width = TILE_SIZE;
-                                dirtSprite.height = TILE_SIZE;
-                                container.addChild(dirtSprite);
+                            // Show green shade for grass tiles (only in grid mode)
+                            if (tileValue === 1) {
+                                const greenShade = new PIXI.Graphics();
+                                greenShade.beginFill(0x00ff00, 0.3); // Green with transparency
+                                greenShade.drawRect(worldX * TILE_SIZE, worldY * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                                greenShade.endFill();
+                                gridContainer.addChild(greenShade); // Add to grid layer so it toggles with 'G'
                             }
                         }
                     }
@@ -589,7 +574,7 @@
                             const tileY = ((worldY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
 
                             const currentValue = chunk[tileY][tileX];
-                            const newValue = mouse.leftDown ? 0 : 1;
+                            const newValue = mouse.leftDown ? 1 : 0; // left=grass, right=dirt
 
                             // Only update if value changed
                             if (currentValue !== newValue) {
