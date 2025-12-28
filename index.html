@@ -371,9 +371,9 @@
 
                 // Render function - chunk-based to prevent crashes
                 function render() {
-                    // Calculate player chunk position
-                    const playerChunkX = Math.floor(player.x / TILE_SIZE / CHUNK_SIZE);
-                    const playerChunkY = Math.floor(player.y / TILE_SIZE / CHUNK_SIZE);
+                    // Calculate player chunk position (round to center player in chunk)
+                    const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
+                    const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
 
                     // Dynamic render distance based on zoom (more zoom = less chunks needed)
                     const renderDistance = Math.ceil(5 / camera.zoom);
@@ -516,7 +516,7 @@
                         overlayGraphics.stroke(); // Make lines visible
 
                         // 4. White visual grid (offset by 0.5 from world grid)
-                        overlayGraphics.lineStyle(1, 0xffffff, 0.4); // Thicker and more visible
+                        overlayGraphics.lineStyle(0.25, 0xffffff, 0.2); // Very thin, subtle lines
                         for (let x = startX; x <= endX; x++) {
                             const visualX = (x + 0.5) * TILE_SIZE;
                             overlayGraphics.moveTo(visualX, startY * TILE_SIZE);
