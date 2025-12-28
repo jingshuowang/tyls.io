@@ -328,7 +328,8 @@
                     }
 
                     const avgDirtColor = getAverageColor(dirtTex);
-                    const avgGrassColor = getAverageColor(grassTex);
+                    // Override grass color for LOD to be yellowish-green (like the sample)
+                    const avgGrassColor = 0x9CAF2B; // Yellowish-green for LOD grass
 
                     document.getElementById('info').textContent = 'Generating world...';
 
@@ -402,9 +403,10 @@
                         renderOverlays();
 
                         // Transform world (camera system - center camera position on screen)
+                        // Round to whole pixels to prevent "boiling" effect
                         world.scale.set(camera.zoom);
-                        world.x = -camera.x * camera.zoom + app.screen.width / 2;
-                        world.y = -camera.y * camera.zoom + app.screen.height / 2;
+                        world.x = Math.round(-camera.x * camera.zoom + app.screen.width / 2);
+                        world.y = Math.round(-camera.y * camera.zoom + app.screen.height / 2);
 
                         // Clear previous UI overlays (keep world container)
                         while (app.stage.children.length > 1) {
@@ -571,10 +573,16 @@
 
                         // Multi-layer grid system (when G is pressed)
                         if (showGrid) {
-                            const startX = Math.floor(camera.x / TILE_SIZE) - 20;
-                            const endX = Math.ceil((camera.x + app.screen.width / camera.zoom) / TILE_SIZE) + 20;
-                            const startY = Math.floor(camera.y / TILE_SIZE) - 20;
-                            const endY = Math.ceil((camera.y + app.screen.height / camera.zoom) / TILE_SIZE) + 20;
+                            // Calculate player chunk position
+                            const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
+                            const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
+                            const renderDistance = Math.min(5, Math.ceil(5 / Math.max(camera.zoom, 1.0)));
+
+                            // Grid bounds based on render distance (in tiles)
+                            const startX = (playerChunkX - renderDistance) * CHUNK_SIZE;
+                            const endX = (playerChunkX + renderDistance + 1) * CHUNK_SIZE;
+                            const startY = (playerChunkY - renderDistance) * CHUNK_SIZE;
+                            const endY = (playerChunkY + renderDistance + 1) * CHUNK_SIZE;
 
                             // 1. Green shades for grass tiles
                             for (let y = startY; y < endY; y++) {
