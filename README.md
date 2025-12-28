@@ -80,4 +80,4 @@
    * Visual: Completely filled with grass (Center of a landmass).
    * Instruction: If (TL==F && TR==F && BL==F && BR==F) use Image ID: [6] 
  ✅ there is no pooling so the amount of chunks in top left is stacks and after a while of playing it overloads and gets laggy. 
- i happy that the pixels are so clear but theres this weird bug. when i press the mouse left click it places and opposite for right clikc. but its not supose to. and there isnt this bug when i hold it and drag
+ i happy that the pixels are so clear but theres this weird bug. when i press the mouse left click it places and opposite for right clikc. but its not supose to. and there isnt this bug when i hold it and drag. so as long as my mosue dosent move it inverets the plce / hold
