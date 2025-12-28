@@ -89,5 +89,5 @@
 8. i can see that the tiles are good tile the tile coding is correct but u need world genration because its just infinite goofy ahh tiles.
 9. it wen aw snap after a while.
 on top left corner show number of chunks rendered. if its not in render distance no need to render it just keep it in memory. dont load chunks that are not in render distance. and dont load after the game strats the world is built before the game even starts in the laoding screen and after the whole world is build then start it. we can just have 100 chunks rendered for niow and render distance is 5 chunks away from the player.
+10. gmae loop is not ideal use this transcript: ok i coundt get it. its like this input, update, render
 
-all of these here arent implemetned currently

@@ -43,7 +43,8 @@
                 width: window.innerWidth,
                 height: window.innerHeight,
                 backgroundColor: 0x1a1a1a,
-                antialias: false
+                antialias: false,
+                roundPixels: true  // Pixel-perfect rendering
             });
             document.body.appendChild(app.canvas);
 
@@ -155,7 +156,7 @@
             }
 
             // Camera
-            const camera = { x: 0, y: 0, zoom: 1, freelook: false };
+            const camera = { x: 0, y: 0, zoom: 3.0, freelook: false };
 
             // Player
             const player = { x: 0, y: 0, width: 16, height: 16, speed: 200 };
@@ -310,13 +311,15 @@
                     if (keys['w'] || keys['arrowup']) moveY = -1;
                     if (keys['s'] || keys['arrowdown']) moveY = 1;
 
+                    // Normalize diagonal movement
                     if (moveX !== 0 && moveY !== 0) {
                         moveX *= 0.707;
                         moveY *= 0.707;
                     }
 
-                    player.x = Math.round(player.x + moveX * player.speed * dt);
-                    player.y = Math.round(player.y + moveY * player.speed * dt);
+                    // Smooth movement (no rounding for smooth interpolation)
+                    player.x += moveX * player.speed * dt;
+                    player.y += moveY * player.speed * dt;
 
                     // Camera follow or freelook movement
                     if (camera.freelook) {
@@ -324,20 +327,20 @@
                         camera.x += moveX * player.speed * dt;
                         camera.y += moveY * player.speed * dt;
                     } else {
-                        // Normal mode: camera follows player (centered)
-                        camera.x = player.x + player.width / 2 - (app.screen.width / 2) / camera.zoom;
-                        camera.y = player.y + player.height / 2 - (app.screen.height / 2) / camera.zoom;
+                        // Normal mode: camera follows player (centered on screen)
+                        camera.x = player.x - (app.screen.width / 2) / camera.zoom;
+                        camera.y = player.y - (app.screen.height / 2) / camera.zoom;
                     }
 
                     // Update stats (simplified: FPS and location only)
                     const fps = Math.round(app.ticker.FPS);
                     document.getElementById('info').textContent = `FPS: ${fps} | Location: ${Math.floor(player.x)}, ${Math.floor(player.y)}`;
 
-                    // Handle input
+                    // Handle input (left=break/dirt, right=place/grass)
                     if (mouse.left || mouse.right) {
                         const worldX = Math.floor((mouse.x - world.x) / camera.zoom / TILE_SIZE);
                         const worldY = Math.floor((mouse.y - world.y) / camera.zoom / TILE_SIZE);
-                        setTile(worldX, worldY, mouse.left ? 1 : 0);
+                        setTile(worldX, worldY, mouse.right ? 1 : 0);
                     }
 
                     render();
@@ -372,10 +375,13 @@
                     const playerChunkX = Math.floor(player.x / TILE_SIZE / CHUNK_SIZE);
                     const playerChunkY = Math.floor(player.y / TILE_SIZE / CHUNK_SIZE);
 
-                    // Determine which chunks to render (within RENDER_DISTANCE)
+                    // Dynamic render distance based on zoom (more zoom = less chunks needed)
+                    const renderDistance = Math.ceil(5 / camera.zoom);
+
+                    // Determine which chunks to render (within renderDistance)
                     const chunksToRender = new Set();
-                    for (let cy = playerChunkY - RENDER_DISTANCE; cy <= playerChunkY + RENDER_DISTANCE; cy++) {
-                        for (let cx = playerChunkX - RENDER_DISTANCE; cx <= playerChunkX + RENDER_DISTANCE; cx++) {
+                    for (let cy = playerChunkY - renderDistance; cy <= playerChunkY + renderDistance; cy++) {
+                        for (let cx = playerChunkX - renderDistance; cx <= playerChunkX + renderDistance; cx++) {
                             chunksToRender.add(`${cx},${cy}`);
                         }
                     }
@@ -507,8 +513,8 @@
                             overlayGraphics.lineTo(endX * TILE_SIZE, y * TILE_SIZE);
                         }
 
-                        // 4. White visual grid
-                        overlayGraphics.lineStyle(0.5, 0xffffff, 0.2);
+                        // 4. White visual grid (offset by 0.5 from world grid)
+                        overlayGraphics.lineStyle(1, 0xffffff, 0.4); // Thicker and more visible
                         for (let x = startX; x <= endX; x++) {
                             const visualX = (x + 0.5) * TILE_SIZE;
                             overlayGraphics.moveTo(visualX, startY * TILE_SIZE);
@@ -520,17 +526,6 @@
                             overlayGraphics.lineTo(endX * TILE_SIZE, visualY);
                         }
                     }
-
-                    // Block highlight (mouse hover)
-                    const worldMouseX = Math.floor((mouse.x / camera.zoom + camera.x));
-                    const worldMouseY = Math.floor((mouse.y / camera.zoom + camera.y));
-                    overlayGraphics.lineStyle(2, 0xffffff, 0.5);
-                    overlayGraphics.drawRect(worldMouseX, worldMouseY, TILE_SIZE, TILE_SIZE);
-
-                    // Player marker (red square)
-                    overlayGraphics.beginFill(0xff0000, 0.5);
-                    overlayGraphics.drawRect(player.x, player.y, player.width, player.height);
-                    overlayGraphics.endFill();
 
                     world.addChild(overlayGraphics);
                 }
