@@ -14,6 +14,7 @@
             display: block;
             image-rendering: pixelated;
             image-rendering: crisp-edges;
+            cursor: crosshair;
         }
 
         #info {
@@ -57,15 +58,34 @@
             const world = new PIXI.Container();
             app.stage.addChild(world);
 
+
             // World data
             const tiles = new Map(); // "x,y" -> 0=dirt, 1=grass
+
+            // Simple Perlin-like noise
+            function noise2D(x, y) {
+                const X = Math.floor(x) & 255;
+                const Y = Math.floor(y) & 255;
+                x -= Math.floor(x);
+                y -= Math.floor(y);
+                const u = x * x * (3 - 2 * x);
+                const v = y * y * (3 - 2 * y);
+                const a = (X * 374761393 + Y * 668265263) & 0xffffffff;
+                const b = ((X + 1) * 374761393 + Y * 668265263) & 0xffffffff;
+                const c = (X * 374761393 + (Y + 1) * 668265263) & 0xffffffff;
+                const d = ((X + 1) * 374761393 + (Y + 1) * 668265263) & 0xffffffff;
+                const hash = (n) => (Math.sin(n) * 43758.5453123) % 1;
+                return (hash(a) * (1 - u) + hash(b) * u) * (1 - v) +
+                    (hash(c) * (1 - u) + hash(d) * u) * v;
+            }
 
             function getTile(x, y) {
                 const key = `${x},${y}`;
                 if (!tiles.has(key)) {
-                    // Generate with noise
-                    const noise = Math.sin(x * 0.05) * Math.cos(y * 0.05);
-                    tiles.set(key, noise > 0.1 ? 0 : 1);
+                    // Generate with Perlin noise
+                    const scale = 0.05;
+                    const noise = noise2D(x * scale, y * scale);
+                    tiles.set(key, noise > 0.3 ? 1 : 0); // 1=grass, 0=dirt
                 }
                 return tiles.get(key);
             }
@@ -88,28 +108,44 @@
             }
 
             // Camera
-            const camera = { x: 0, y: 0, zoom: 3 };
+            const camera = { x: 0, y: 0, zoom: 3, freelook: false };
+
+            // Player
+            const player = { x: 0, y: 0, width: 16, height: 16, speed: 200 };
 
             // Mouse
             const mouse = { x: 0, y: 0, left: false, right: false };
 
-            app.view.addEventListener('mousemove', (e) => {
+            app.canvas.addEventListener('mousemove', (e) => {
                 mouse.x = e.clientX;
                 mouse.y = e.clientY;
             });
 
-            app.view.addEventListener('mousedown', (e) => {
+            app.canvas.addEventListener('mousedown', (e) => {
+                mouse.x = e.clientX;
+                mouse.y = e.clientY;
                 if (e.button === 0) mouse.left = true;
                 if (e.button === 2) mouse.right = true;
                 e.preventDefault();
             });
 
-            app.view.addEventListener('mouseup', (e) => {
+            app.canvas.addEventListener('mouseup', (e) => {
                 if (e.button === 0) mouse.left = false;
                 if (e.button === 2) mouse.right = false;
             });
 
-            app.view.addEventListener('contextmenu', (e) => e.preventDefault());
+            app.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+            // Zoom
+            app.canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const zoomSpeed = 0.1;
+                if (e.deltaY < 0) {
+                    camera.zoom = Math.min(camera.zoom + zoomSpeed, 10);
+                } else {
+                    camera.zoom = Math.max(camera.zoom - zoomSpeed, 0.5);
+                }
+            });
 
             // Keyboard
             const keys = {};
@@ -119,6 +155,10 @@
                 keys[e.key.toLowerCase()] = true;
                 if (e.key.toLowerCase() === 'g') {
                     showGrid = !showGrid;
+                }
+                if (e.key === 'Alt') {
+                    camera.freelook = !camera.freelook;
+                    e.preventDefault();
                 }
             });
 
@@ -181,10 +221,46 @@
                     return createPlaceholderTexture(0x228B22); // Green
                 })
             ]).then(([dirtTex, grassTex]) => {
-                document.getElementById('info').textContent = 'Ready! Left=Grass, Right=Dirt';
+                document.getElementById('info').textContent = 'Ready! Press G for grid, Alt for freelook';
+
+                let lastTime = performance.now();
 
                 // Game loop
                 app.ticker.add(() => {
+                    const time = performance.now();
+                    const dt = Math.min((time - lastTime) / 1000, 0.1);
+                    lastTime = time;
+
+                    // Camera movement (WASD)
+                    let moveX = 0, moveY = 0;
+                    if (keys['a'] || keys['arrowleft']) moveX = -1;
+                    if (keys['d'] || keys['arrowright']) moveX = 1;
+                    if (keys['w'] || keys['arrowup']) moveY = -1;
+                    if (keys['s'] || keys['arrowdown']) moveY = 1;
+
+                    if (moveX !== 0 && moveY !== 0) {
+                        moveX *= 0.707;
+                        moveY *= 0.707;
+                    }
+
+                    player.x = Math.round(player.x + moveX * player.speed * dt);
+                    player.y = Math.round(player.y + moveY * player.speed * dt);
+
+                    // Camera follow or freelook movement
+                    if (camera.freelook) {
+                        // In freelook, WASD moves camera directly
+                        camera.x += moveX * player.speed * dt;
+                        camera.y += moveY * player.speed * dt;
+                    } else {
+                        // Normal mode: camera follows player (centered)
+                        camera.x = player.x + player.width / 2 - (app.screen.width / 2) / camera.zoom;
+                        camera.y = player.y + player.height / 2 - (app.screen.height / 2) / camera.zoom;
+                    }
+
+                    // Update stats (simplified: FPS and location only)
+                    const fps = Math.round(app.ticker.FPS);
+                    document.getElementById('info').textContent = `FPS: ${fps} | Location: ${Math.floor(player.x)}, ${Math.floor(player.y)}`;
+
                     // Handle input
                     if (mouse.left || mouse.right) {
                         const worldX = Math.floor((mouse.x - world.x) / camera.zoom / TILE_SIZE);
@@ -235,28 +311,95 @@
                         }
                     }
 
-                    // Draw white grid if enabled
+                    // Multi-layer grid system (when G is pressed)
                     if (showGrid) {
                         const gridGraphics = new PIXI.Graphics();
-                        gridGraphics.lineStyle(0.5, 0xffffff, 0.3); // Thin white lines
 
+                        // 1. Green shades for grass tiles on world grid
+                        for (let y = startY; y < endY; y++) {
+                            for (let x = startX; x < endX; x++) {
+                                if (getTile(x, y) === 1) { // 1 = grass
+                                    gridGraphics.beginFill(0x00ff00, 0.1); // Light green
+                                    gridGraphics.drawRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                                    gridGraphics.endFill();
+                                }
+                            }
+                        }
+
+                        // 2. Blue lines for chunk boundaries
+                        gridGraphics.lineStyle(2, 0x0000ff, 0.5); // Blue, thicker
+                        const chunkStartX = Math.floor(startX / CHUNK_SIZE) * CHUNK_SIZE;
+                        const chunkEndX = Math.ceil(endX / CHUNK_SIZE) * CHUNK_SIZE;
+                        const chunkStartY = Math.floor(startY / CHUNK_SIZE) * CHUNK_SIZE;
+                        const chunkEndY = Math.ceil(endY / CHUNK_SIZE) * CHUNK_SIZE;
+
+                        for (let x = chunkStartX; x <= chunkEndX; x += CHUNK_SIZE) {
+                            gridGraphics.moveTo(x * TILE_SIZE, chunkStartY * TILE_SIZE);
+                            gridGraphics.lineTo(x * TILE_SIZE, chunkEndY * TILE_SIZE);
+                        }
+                        for (let y = chunkStartY; y <= chunkEndY; y += CHUNK_SIZE) {
+                            gridGraphics.moveTo(chunkStartX * TILE_SIZE, y * TILE_SIZE);
+                            gridGraphics.lineTo(chunkEndX * TILE_SIZE, y * TILE_SIZE);
+                        }
+
+                        // 3. Red lines for tile grid (world grid)
+                        gridGraphics.lineStyle(1, 0xff0000, 0.3); // Red, medium
                         for (let x = startX; x <= endX; x++) {
                             gridGraphics.moveTo(x * TILE_SIZE, startY * TILE_SIZE);
                             gridGraphics.lineTo(x * TILE_SIZE, endY * TILE_SIZE);
                         }
-
                         for (let y = startY; y <= endY; y++) {
                             gridGraphics.moveTo(startX * TILE_SIZE, y * TILE_SIZE);
                             gridGraphics.lineTo(endX * TILE_SIZE, y * TILE_SIZE);
                         }
 
+                        // 4. White lines for visual grid (grass alignment grid)
+                        gridGraphics.lineStyle(0.5, 0xffffff, 0.2); // White, very thin
+                        for (let x = startX; x <= endX; x++) {
+                            const visualX = (x + 0.5) * TILE_SIZE;
+                            gridGraphics.moveTo(visualX, startY * TILE_SIZE);
+                            gridGraphics.lineTo(visualX, endY * TILE_SIZE);
+                        }
+                        for (let y = startY; y <= endY; y++) {
+                            const visualY = (y + 0.5) * TILE_SIZE;
+                            gridGraphics.moveTo(startX * TILE_SIZE, visualY);
+                            gridGraphics.lineTo(endX * TILE_SIZE, visualY);
+                        }
+
                         world.addChild(gridGraphics);
                     }
+
+                    // Block highlight (mouse hover)
+                    const worldMouseX = Math.floor((mouse.x / camera.zoom + camera.x));
+                    const worldMouseY = Math.floor((mouse.y / camera.zoom + camera.y));
+                    const highlightGraphics = new PIXI.Graphics();
+                    highlightGraphics.lineStyle(2, 0xffffff, 0.5);
+                    highlightGraphics.drawRect(worldMouseX, worldMouseY, TILE_SIZE, TILE_SIZE);
+                    world.addChild(highlightGraphics);
+
+                    // Player marker (red square)
+                    const playerGraphics = new PIXI.Graphics();
+                    playerGraphics.beginFill(0xff0000, 0.5);
+                    playerGraphics.drawRect(player.x, player.y, player.width, player.height);
+                    playerGraphics.endFill();
+                    world.addChild(playerGraphics);
 
                     // Transform
                     world.scale.set(camera.zoom);
                     world.x = -camera.x * camera.zoom + app.screen.width / 2;
                     world.y = -camera.y * camera.zoom + app.screen.height / 2;
+
+                    // Crosshair (screen space - after transform)
+                    const crosshairGraphics = new PIXI.Graphics();
+                    crosshairGraphics.lineStyle(2, 0xffffff, 0.8);
+                    const centerX = app.screen.width / 2;
+                    const centerY = app.screen.height / 2;
+                    const size = 10;
+                    crosshairGraphics.moveTo(centerX - size, centerY);
+                    crosshairGraphics.lineTo(centerX + size, centerY);
+                    crosshairGraphics.moveTo(centerX, centerY - size);
+                    crosshairGraphics.lineTo(centerX, centerY + size);
+                    app.stage.addChild(crosshairGraphics);
                 }
             });
         }); // End window.addEventListener

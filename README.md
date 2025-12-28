@@ -79,5 +79,9 @@
    * Condition: TL:F, TR:F, BL:F, BR:F
    * Visual: Completely filled with grass (Center of a landmass).
    * Instruction: If (TL==F && TR==F && BL==F && BR==F) use Image ID: [6] 
- ✅ there is no pooling so the amount of chunks in top left is stacks and after a while of playing it overloads and gets laggy. 
- i happy that the pixels are so clear but theres this weird bug. when i press the mouse left click it places and opposite for right clikc. but its not supose to. and there isnt this bug when i hold it and drag. so as long as my mosue dosent move it inverets the plce / hold
+ ✅ 1. there is no pooling so the amount of chunks in top left is stacks and after a while of playing it overloads and gets laggy. 
+ ✅ 2. happy that the pixels are so clear but theres this weird bug. when i press the mouse left click it places and opposite for right clikc. but its not supose to. and there isnt this bug when i hold it and drag. so as long as my mosue dosent move it inverets the plce / hold
+ ✅ 3. perlin noice for genration of chunks and chunk loading. the game goes aw snap after a while.
+ ✅ 4. u forgot grid? grid has green shade for world grid grass locations. blue for chunks and red for tiles. white is very lightr and for visual grid which grass tiles rendered will line up to . make sure the ceaemra center. 
+ ✅ 5. make sure the cameara scrolling in alt mode is centered. the stats on top left is FPS ,location and thats it. i will design a good frame for stuf will be designed with a border and filed area so u can load in a  type of thing called a border like kidna like the border of a inventory but it can be used everywhere. thast something for the future tho
+
