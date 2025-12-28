@@ -193,14 +193,20 @@
                 if (e.key.toLowerCase() === 'g') {
                     showGrid = !showGrid;
                 }
-                if (e.key === 'Alt') {
-                    camera.freelook = !camera.freelook;
+                // Alt key for freelook toggle
+                if (e.altKey && !camera.freelook) {
+                    camera.freelook = true;
+                    document.getElementById('info').textContent = 'FREELOOK MODE - Alt to exit';
                     e.preventDefault();
                 }
             });
 
             window.addEventListener('keyup', (e) => {
                 keys[e.key.toLowerCase()] = false;
+                // Exit freelook when Alt is released
+                if (!e.altKey && camera.freelook) {
+                    camera.freelook = false;
+                }
             });
 
             // Grass tile mapping (from README)
@@ -258,6 +264,24 @@
                     return createPlaceholderTexture(0x228B22); // Green
                 })
             ]).then(([dirtTex, grassTex]) => {
+                document.getElementById('info').textContent = 'Generating world...';
+
+                // Pre-generate chunks around spawn to prevent lag spikes
+                const pregenRadius = RENDER_DISTANCE + 2; // Generate extra chunks
+                let chunksGenerated = 0;
+                const totalChunks = (pregenRadius * 2 + 1) * (pregenRadius * 2 + 1);
+
+                for (let cy = -pregenRadius; cy <= pregenRadius; cy++) {
+                    for (let cx = -pregenRadius; cx <= pregenRadius; cx++) {
+                        getChunk(cx, cy); // This generates and caches the chunk
+                        chunksGenerated++;
+                        if (chunksGenerated % 10 === 0) {
+                            document.getElementById('info').textContent =
+                                `Generating world... ${Math.floor(chunksGenerated / totalChunks * 100)}%`;
+                        }
+                    }
+                }
+
                 document.getElementById('info').textContent = 'Ready! Press G for grid, Alt for freelook';
 
                 let lastTime = performance.now();
@@ -306,6 +330,29 @@
                     }
 
                     render();
+                    renderOverlays();
+
+                    // Transform world
+                    world.scale.set(camera.zoom);
+                    world.x = -camera.x * camera.zoom + app.screen.width / 2;
+                    world.y = -camera.y * camera.zoom + app.screen.height / 2;
+
+                    // Clear previous UI overlays (keep world container)
+                    while (app.stage.children.length > 1) {
+                        app.stage.removeChildAt(1).destroy();
+                    }
+
+                    // Crosshair (screen space - after transform)
+                    const crosshairGraphics = new PIXI.Graphics();
+                    crosshairGraphics.lineStyle(2, 0xffffff, 0.8);
+                    const centerX = app.screen.width / 2;
+                    const centerY = app.screen.height / 2;
+                    const size = 10;
+                    crosshairGraphics.moveTo(centerX - size, centerY);
+                    crosshairGraphics.lineTo(centerX + size, centerY);
+                    crosshairGraphics.moveTo(centerX, centerY - size);
+                    crosshairGraphics.lineTo(centerX, centerY + size);
+                    app.stage.addChild(crosshairGraphics);
                 });
 
                 // Render function - chunk-based to prevent crashes
@@ -463,23 +510,6 @@
                     playerGraphics.drawRect(player.x, player.y, player.width, player.height);
                     playerGraphics.endFill();
                     world.addChild(playerGraphics);
-
-                    // Transform
-                    world.scale.set(camera.zoom);
-                    world.x = -camera.x * camera.zoom + app.screen.width / 2;
-                    world.y = -camera.y * camera.zoom + app.screen.height / 2;
-
-                    // Crosshair (screen space - after transform)
-                    const crosshairGraphics = new PIXI.Graphics();
-                    crosshairGraphics.lineStyle(2, 0xffffff, 0.8);
-                    const centerX = app.screen.width / 2;
-                    const centerY = app.screen.height / 2;
-                    const size = 10;
-                    crosshairGraphics.moveTo(centerX - size, centerY);
-                    crosshairGraphics.lineTo(centerX + size, centerY);
-                    crosshairGraphics.moveTo(centerX, centerY - size);
-                    crosshairGraphics.lineTo(centerX, centerY + size);
-                    app.stage.addChild(crosshairGraphics);
                 }
             });
         }); // End window.addEventListener

@@ -82,7 +82,7 @@
 1. add grids, red for singular tiles, blue for chunks 8 by 8 tiles, thin white for visual grid and green shade for grass tiles.
 2. fix movement in wasd mode it looks laggy and unsmooth. smoothen it. normalize it too
 3. fix scrolling, its not centered. 
-4. add alt mode and fix scrolling in that too.
+4. add alt mode and fix scrolling in that too. like dragging stuff around.
 5. add highlight for blocks that are being hovered over. and when mosue pressed go to image 1 when not image 0. for spriotesheet
 6. add a crossbar in the center of the screen4
 7. use my special cursor :D.
