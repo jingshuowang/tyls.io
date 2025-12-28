@@ -88,16 +88,22 @@
             function getChunk(cx, cy) {
                 const key = `${cx},${cy}`;
                 if (!chunks.has(key)) {
-                    // Generate chunk
+                    // Generate chunk with Perlin noise
                     const chunk = [];
                     for (let ty = 0; ty < CHUNK_SIZE; ty++) {
                         chunk[ty] = [];
                         for (let tx = 0; tx < CHUNK_SIZE; tx++) {
                             const worldX = cx * CHUNK_SIZE + tx;
                             const worldY = cy * CHUNK_SIZE + ty;
-                            const scale = 0.05;
-                            const noise = noise2D(worldX * scale, worldY * scale);
-                            chunk[ty][tx] = noise > 0.3 ? 1 : 0; // 1=grass, 0=dirt
+
+                            // Multi-octave Perlin noise for more natural terrain
+                            const scale1 = 0.03;  // Large features
+                            const scale2 = 0.1;   // Medium features
+                            const noise1 = noise2D(worldX * scale1, worldY * scale1);
+                            const noise2 = noise2D(worldX * scale2, worldY * scale2);
+                            const combinedNoise = noise1 * 0.7 + noise2 * 0.3;
+
+                            chunk[ty][tx] = combinedNoise > 0.2 ? 1 : 0; // 1=grass, 0=dirt
                         }
                     }
                     chunks.set(key, chunk);
