@@ -31,22 +31,22 @@
     <script src="https://unpkg.com/pixi.js@8.x/dist/pixi.min.js"></script>
     <script>
         // Wait for PixiJS to load
-        window.addEventListener('load', () => {
+        window.addEventListener('load', async () => {
             // Settings
             const TILE_SIZE = 16;
             const CHUNK_SIZE = 16;
 
-            // PixiJS App
-            const app = new PIXI.Application({
+            // PixiJS App (v8 requires await)
+            const app = new PIXI.Application();
+            await app.init({
                 width: window.innerWidth,
                 height: window.innerHeight,
                 backgroundColor: 0x1a1a1a,
                 antialias: false
             });
-            document.body.appendChild(app.view);
+            document.body.appendChild(app.canvas);
 
             // Pixel-perfect (v8 compatible)
-            PIXI.BaseTexture.defaultOptions.scaleMode = PIXI.SCALE_MODES.NEAREST;
             app.ticker.maxFPS = 64;
 
             // Load textures
