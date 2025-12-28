@@ -210,8 +210,9 @@
 
                 app.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-                // Exponential zoom
+                // Exponential zoom - ONLY in freelook mode
                 app.canvas.addEventListener('wheel', (e) => {
+                    if (!camera.freelook) return; // Only zoom in Alt mode
                     e.preventDefault();
                     const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9; // 10% change per scroll
                     camera.zoom = Math.max(config.minZoom, Math.min(config.maxZoom, camera.zoom * zoomFactor));
@@ -396,7 +397,8 @@
                         document.getElementById('info').textContent = `FPS: ${fps} | Location: ${Math.floor(player.x)}, ${Math.floor(player.y)}`;
 
                         // Handle input (left=break/dirt, right=place/grass)
-                        if (mouse.left || mouse.right) {
+                        // Only allow building in normal mode, not in freelook
+                        if ((mouse.left || mouse.right) && !camera.freelook) {
                             const worldX = Math.floor((mouse.x - world.x) / camera.zoom / TILE_SIZE);
                             const worldY = Math.floor((mouse.y - world.y) / camera.zoom / TILE_SIZE);
                             setTile(worldX, worldY, mouse.right ? 1 : 0);
