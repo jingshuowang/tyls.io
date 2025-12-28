@@ -229,7 +229,8 @@
                     // Alt key for freelook toggle
                     if (e.altKey && !camera.freelook) {
                         camera.freelook = true;
-                        document.getElementById('info').textContent = 'FREELOOK MODE - Alt to exit';
+                        console.log('FREELOOK ENABLED');
+                        document.getElementById('info').textContent = 'FREELOOK MODE';
                         e.preventDefault();
                     }
                 });
@@ -314,10 +315,13 @@
 
                         let r = 0, g = 0, b = 0, count = 0;
                         for (let i = 0; i < data.length; i += 4) {
-                            r += data[i];
-                            g += data[i + 1];
-                            b += data[i + 2];
-                            count++;
+                            // Skip transparent pixels (alpha < 128)
+                            if (data[i + 3] >= 128) {
+                                r += data[i];
+                                g += data[i + 1];
+                                b += data[i + 2];
+                                count++;
+                            }
                         }
 
                         r = Math.floor(r / count);
@@ -328,8 +332,7 @@
                     }
 
                     const avgDirtColor = getAverageColor(dirtTex);
-                    // Override grass color for LOD to be yellowish-green (like the sample)
-                    const avgGrassColor = 0x9CAF2B; // Yellowish-green for LOD grass
+                    const avgGrassColor = getAverageColor(grassTex);
 
                     document.getElementById('info').textContent = 'Generating world...';
 
@@ -433,10 +436,11 @@
 
                         const highlightGraphics = new PIXI.Graphics();
                         // Use different sprite based on mouse state: 0 = not pressed, 1 = pressed
-                        const highlightAlpha = (mouse.left || mouse.right) ? 0.5 : 0.3;
-                        const highlightColor = (mouse.left || mouse.right) ? 0xFFFFFF : 0xFFFF00;
+                        // Make it VERY visible with bright colors and thick lines
+                        const highlightAlpha = (mouse.left || mouse.right) ? 1.0 : 0.8;
+                        const highlightColor = (mouse.left || mouse.right) ? 0xFF0000 : 0xFFFF00; // Red when clicking, yellow when hovering
 
-                        highlightGraphics.lineStyle(2, highlightColor, highlightAlpha);
+                        highlightGraphics.lineStyle(4, highlightColor, highlightAlpha); // Thick line
                         highlightGraphics.drawRect(
                             tileX * TILE_SIZE,
                             tileY * TILE_SIZE,
