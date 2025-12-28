@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>Survival Game - Clean</title>
+    <title>tyls.io</title>
     <style>
         body {
             margin: 0;
@@ -97,13 +97,13 @@
                             const worldY = cy * CHUNK_SIZE + ty;
 
                             // Multi-octave Perlin noise for more natural terrain
-                            const scale1 = 0.03;  // Large features
-                            const scale2 = 0.1;   // Medium features
+                            const scale1 = 0.08;  // Large features (smaller = bigger features)
+                            const scale2 = 0.2;   // Medium features
                             const noise1 = noise2D(worldX * scale1, worldY * scale1);
                             const noise2 = noise2D(worldX * scale2, worldY * scale2);
                             const combinedNoise = noise1 * 0.7 + noise2 * 0.3;
 
-                            chunk[ty][tx] = combinedNoise > 0.2 ? 1 : 0; // 1=grass, 0=dirt
+                            chunk[ty][tx] = combinedNoise > 0.15 ? 1 : 0; // 1=grass, 0=dirt
                         }
                     }
                     chunks.set(key, chunk);
@@ -137,17 +137,21 @@
                 }
             }
 
-            // Get dirt variant (4x4 grid)
+            // Get dirt variant (4x4 grid = 16 variations)
             function getDirtIdx(x, y) {
-                const seed = x * 374761393 + y * 668265263;
-                let value = Math.sin(seed) * 43758.5453;
-                return Math.floor((value - Math.floor(value)) * 16);
+                // Use position-based pseudo-random for consistent dirt pattern
+                const hash = (x * 374761393 + y * 668265263) & 0xffffffff;
+                return Math.abs(hash) % 16; // Random dirt tile 0-15
             }
 
-            function getTileTexture(baseTex, idx) {
+            function getTileTexture(sourceTexture, idx) {
                 const col = idx % 4;
                 const row = Math.floor(idx / 4);
-                return new PIXI.Texture(baseTex, new PIXI.Rectangle(col * 16, row * 16, 16, 16));
+                // In PixiJS v8, create texture from source with frame rectangle
+                return new PIXI.Texture({
+                    source: sourceTexture.source,
+                    frame: new PIXI.Rectangle(col * 16, row * 16, 16, 16)
+                });
             }
 
             // Camera
@@ -289,7 +293,7 @@
                 }
 
                 document.getElementById('info').textContent = 'Ready! Press G for grid, Alt for freelook';
-                console.log('World generation complete! Starting game loop...');
+
 
                 let lastTime = performance.now();
 
@@ -414,7 +418,7 @@
 
                             // Dirt tile
                             const dirtIdx = getDirtIdx(worldX, worldY);
-                            const dirtTexture = getTileTexture(dirtTex.baseTexture, dirtIdx);
+                            const dirtTexture = getTileTexture(dirtTex, dirtIdx);
                             const dirtSprite = new PIXI.Sprite(dirtTexture);
                             dirtSprite.x = worldX * TILE_SIZE;
                             dirtSprite.y = worldY * TILE_SIZE;
@@ -430,7 +434,7 @@
 
                             if (hasGrass) {
                                 const grassIdx = getGrassIdx(worldX, worldY);
-                                const grassTexture = getTileTexture(grassTex.baseTexture, grassIdx);
+                                const grassTexture = getTileTexture(grassTex, grassIdx);
                                 const grassSprite = new PIXI.Sprite(grassTexture);
                                 grassSprite.x = (worldX + 0.5) * TILE_SIZE;
                                 grassSprite.y = (worldY + 0.5) * TILE_SIZE;
@@ -442,26 +446,24 @@
                         }
                     }
 
-                    console.log(`Rendering chunk (${cx},${cy}) with ${CHUNK_SIZE}x${CHUNK_SIZE} tiles`);
-
-                    // Debug: Add colored background to see if chunk container is visible
-                    const debugBg = new PIXI.Graphics();
-                    debugBg.beginFill(0x333333, 0.3);
-                    debugBg.drawRect(cx * CHUNK_SIZE * TILE_SIZE, cy * CHUNK_SIZE * TILE_SIZE,
-                        CHUNK_SIZE * TILE_SIZE, CHUNK_SIZE * TILE_SIZE);
-                    debugBg.endFill();
-                    container.addChild(debugBg);
-
                     chunkContainers.set(key, container);
                     world.addChild(container);
-                    console.log(`Chunk (${cx},${cy}) added to world. Total chunks: ${chunkContainers.size}`);
                 }
 
                 // Render overlays (grid, highlights, etc) - called after chunk rendering
+                let overlayGraphics = null;
+
                 function renderOverlays() {
+                    // Clear previous overlays
+                    if (overlayGraphics) {
+                        world.removeChild(overlayGraphics);
+                        overlayGraphics.destroy();
+                    }
+
+                    overlayGraphics = new PIXI.Graphics();
+
                     // Multi-layer grid system (when G is pressed)
                     if (showGrid) {
-                        const gridGraphics = new PIXI.Graphics();
                         const startX = Math.floor(camera.x / TILE_SIZE) - 20;
                         const endX = Math.ceil((camera.x + app.screen.width / camera.zoom) / TILE_SIZE) + 20;
                         const startY = Math.floor(camera.y / TILE_SIZE) - 20;
@@ -471,70 +473,66 @@
                         for (let y = startY; y < endY; y++) {
                             for (let x = startX; x < endX; x++) {
                                 if (getTile(x, y) === 1) {
-                                    gridGraphics.beginFill(0x00ff00, 0.1);
-                                    gridGraphics.drawRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                                    gridGraphics.endFill();
+                                    overlayGraphics.beginFill(0x00ff00, 0.1);
+                                    overlayGraphics.drawRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                                    overlayGraphics.endFill();
                                 }
                             }
                         }
 
                         // 2. Blue chunk boundaries
-                        gridGraphics.lineStyle(2, 0x0000ff, 0.5);
+                        overlayGraphics.lineStyle(2, 0x0000ff, 0.5);
                         const chunkStartX = Math.floor(startX / CHUNK_SIZE) * CHUNK_SIZE;
                         const chunkEndX = Math.ceil(endX / CHUNK_SIZE) * CHUNK_SIZE;
                         const chunkStartY = Math.floor(startY / CHUNK_SIZE) * CHUNK_SIZE;
                         const chunkEndY = Math.ceil(endY / CHUNK_SIZE) * CHUNK_SIZE;
 
                         for (let x = chunkStartX; x <= chunkEndX; x += CHUNK_SIZE) {
-                            gridGraphics.moveTo(x * TILE_SIZE, chunkStartY * TILE_SIZE);
-                            gridGraphics.lineTo(x * TILE_SIZE, chunkEndY * TILE_SIZE);
+                            overlayGraphics.moveTo(x * TILE_SIZE, chunkStartY * TILE_SIZE);
+                            overlayGraphics.lineTo(x * TILE_SIZE, chunkEndY * TILE_SIZE);
                         }
                         for (let y = chunkStartY; y <= chunkEndY; y += CHUNK_SIZE) {
-                            gridGraphics.moveTo(chunkStartX * TILE_SIZE, y * TILE_SIZE);
-                            gridGraphics.lineTo(chunkEndX * TILE_SIZE, y * TILE_SIZE);
+                            overlayGraphics.moveTo(chunkStartX * TILE_SIZE, y * TILE_SIZE);
+                            overlayGraphics.lineTo(chunkEndX * TILE_SIZE, y * TILE_SIZE);
                         }
 
                         // 3. Red tile grid
-                        gridGraphics.lineStyle(1, 0xff0000, 0.3);
+                        overlayGraphics.lineStyle(1, 0xff0000, 0.3);
                         for (let x = startX; x <= endX; x++) {
-                            gridGraphics.moveTo(x * TILE_SIZE, startY * TILE_SIZE);
-                            gridGraphics.lineTo(x * TILE_SIZE, endY * TILE_SIZE);
+                            overlayGraphics.moveTo(x * TILE_SIZE, startY * TILE_SIZE);
+                            overlayGraphics.lineTo(x * TILE_SIZE, endY * TILE_SIZE);
                         }
                         for (let y = startY; y <= endY; y++) {
-                            gridGraphics.moveTo(startX * TILE_SIZE, y * TILE_SIZE);
-                            gridGraphics.lineTo(endX * TILE_SIZE, y * TILE_SIZE);
+                            overlayGraphics.moveTo(startX * TILE_SIZE, y * TILE_SIZE);
+                            overlayGraphics.lineTo(endX * TILE_SIZE, y * TILE_SIZE);
                         }
 
                         // 4. White visual grid
-                        gridGraphics.lineStyle(0.5, 0xffffff, 0.2);
+                        overlayGraphics.lineStyle(0.5, 0xffffff, 0.2);
                         for (let x = startX; x <= endX; x++) {
                             const visualX = (x + 0.5) * TILE_SIZE;
-                            gridGraphics.moveTo(visualX, startY * TILE_SIZE);
-                            gridGraphics.lineTo(visualX, endY * TILE_SIZE);
+                            overlayGraphics.moveTo(visualX, startY * TILE_SIZE);
+                            overlayGraphics.lineTo(visualX, endY * TILE_SIZE);
                         }
                         for (let y = startY; y <= endY; y++) {
                             const visualY = (y + 0.5) * TILE_SIZE;
-                            gridGraphics.moveTo(startX * TILE_SIZE, visualY);
-                            gridGraphics.lineTo(endX * TILE_SIZE, visualY);
+                            overlayGraphics.moveTo(startX * TILE_SIZE, visualY);
+                            overlayGraphics.lineTo(endX * TILE_SIZE, visualY);
                         }
-
-                        world.addChild(gridGraphics);
                     }
 
                     // Block highlight (mouse hover)
                     const worldMouseX = Math.floor((mouse.x / camera.zoom + camera.x));
                     const worldMouseY = Math.floor((mouse.y / camera.zoom + camera.y));
-                    const highlightGraphics = new PIXI.Graphics();
-                    highlightGraphics.lineStyle(2, 0xffffff, 0.5);
-                    highlightGraphics.drawRect(worldMouseX, worldMouseY, TILE_SIZE, TILE_SIZE);
-                    world.addChild(highlightGraphics);
+                    overlayGraphics.lineStyle(2, 0xffffff, 0.5);
+                    overlayGraphics.drawRect(worldMouseX, worldMouseY, TILE_SIZE, TILE_SIZE);
 
                     // Player marker (red square)
-                    const playerGraphics = new PIXI.Graphics();
-                    playerGraphics.beginFill(0xff0000, 0.5);
-                    playerGraphics.drawRect(player.x, player.y, player.width, player.height);
-                    playerGraphics.endFill();
-                    world.addChild(playerGraphics);
+                    overlayGraphics.beginFill(0xff0000, 0.5);
+                    overlayGraphics.drawRect(player.x, player.y, player.width, player.height);
+                    overlayGraphics.endFill();
+
+                    world.addChild(overlayGraphics);
                 }
             });
         }); // End window.addEventListener
