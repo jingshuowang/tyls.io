@@ -445,7 +445,8 @@
                         const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
 
                         // Dynamic render distance based on zoom (more zoom = less chunks needed)
-                        const renderDistance = Math.ceil(5 / camera.zoom);
+                        // Cap at 5 to prevent crashes when zoomed way out
+                        const renderDistance = Math.min(5, Math.ceil(5 / Math.max(camera.zoom, 1.0)));
 
                         // Determine which chunks should be visible
                         const chunksToRender = new Set();
