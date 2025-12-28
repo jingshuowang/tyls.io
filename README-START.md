@@ -1,2 +1,0 @@
-delete unused files in node modules and rename it to code
-image selector not right there is 16 tile variations it is using the whole image right now. how image selector works is it selects images from a spritesheet. and making this stable is easy. for example if it was a method. like selctc image, it would have 2 inputs and a output. the image number. and the file. eg: image 0, file dirt.png

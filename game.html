@@ -110,6 +110,52 @@
 
         app.view.addEventListener('contextmenu', (e) => e.preventDefault());
 
+        // Keyboard
+        const keys = {};
+        let showGrid = false;
+
+        window.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+            if (e.key.toLowerCase() === 'g') {
+                showGrid = !showGrid;
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+        });
+
+        // Grass tile mapping (from README)
+        const GRASS_MAP = {
+            '0000': 12, // The Void
+            '1000': 15, // Inner Corner - Top Left
+            '0100': 8,  // Inner Corner - Top Right
+            '0010': 0,  // Inner Corner - Bottom Left
+            '0001': 13, // Inner Corner - Bottom Right
+            '1100': 9,  // Horizontal Edge - Ceiling
+            '0011': 3,  // Horizontal Edge - Floor
+            '1010': 11, // Vertical Edge - Right Face
+            '0101': 1,  // Vertical Edge - Left Face
+            '0110': 14, // Diagonal - Forward Slash
+            '1001': 4,  // Diagonal - Back Slash
+            '1110': 7,  // Outer Corner - Bottom Right
+            '1101': 10, // Outer Corner - Bottom Left
+            '1011': 2,  // Outer Corner - Top Right
+            '0111': 5,  // Outer Corner - Top Left
+            '1111': 6   // Full Solid
+        };
+
+        function getGrassIdx(x, y) {
+            // Check 4 corners: TL, TR, BL, BR
+            // F (filled/grass) = 1, E (empty/dirt) = 0
+            const tl = getTile(x, y) === 1 ? '1' : '0';
+            const tr = getTile(x + 1, y) === 1 ? '1' : '0';
+            const bl = getTile(x, y + 1) === 1 ? '1' : '0';
+            const br = getTile(x + 1, y + 1) === 1 ? '1' : '0';
+            const key = tl + tr + bl + br;
+            return GRASS_MAP[key] !== undefined ? GRASS_MAP[key] : 6;
+        }
+
 
         // Load textures and wait for them
         const loader = PIXI.Loader.shared;
@@ -143,11 +189,9 @@
                 const startY = Math.floor(camera.y / TILE_SIZE) - 20;
                 const endY = Math.ceil((camera.y + app.screen.height / camera.zoom) / TILE_SIZE) + 20;
 
+                // Render dirt tiles
                 for (let y = startY; y < endY; y++) {
                     for (let x = startX; x < endX; x++) {
-                        const tileValue = getTile(x, y);
-
-                        // Get dirt variant from 4x4 grid
                         const idx = getDirtIdx(x, y);
                         const tex = getTileTexture(dirtTex.baseTexture, idx);
 
@@ -158,6 +202,40 @@
                         sprite.height = TILE_SIZE;
                         world.addChild(sprite);
                     }
+                }
+
+                // Render grass tiles (on visual grid - offset by 0.5)
+                for (let y = startY; y < endY; y++) {
+                    for (let x = startX; x < endX; x++) {
+                        const grassIdx = getGrassIdx(x, y);
+                        const grassTexture = getTileTexture(grassTex.baseTexture, grassIdx);
+
+                        const grassSprite = new PIXI.Sprite(grassTexture);
+                        grassSprite.x = (x + 0.5) * TILE_SIZE;
+                        grassSprite.y = (y + 0.5) * TILE_SIZE;
+                        grassSprite.anchor.set(0.5);
+                        grassSprite.width = TILE_SIZE;
+                        grassSprite.height = TILE_SIZE;
+                        world.addChild(grassSprite);
+                    }
+                }
+
+                // Draw white grid if enabled
+                if (showGrid) {
+                    const gridGraphics = new PIXI.Graphics();
+                    gridGraphics.lineStyle(0.5, 0xffffff, 0.3); // Thin white lines
+
+                    for (let x = startX; x <= endX; x++) {
+                        gridGraphics.moveTo(x * TILE_SIZE, startY * TILE_SIZE);
+                        gridGraphics.lineTo(x * TILE_SIZE, endY * TILE_SIZE);
+                    }
+
+                    for (let y = startY; y <= endY; y++) {
+                        gridGraphics.moveTo(startX * TILE_SIZE, y * TILE_SIZE);
+                        gridGraphics.lineTo(endX * TILE_SIZE, y * TILE_SIZE);
+                    }
+
+                    world.addChild(gridGraphics);
                 }
 
                 // Transform
