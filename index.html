@@ -155,428 +155,451 @@
                 });
             }
 
-            // Camera
-            const camera = { x: 0, y: 0, zoom: 3.0, freelook: false };
-
-            // Player (start in center of world, not at edge)
-            const player = { x: 128, y: 128, width: 16, height: 16, speed: 200 };
-
-            // Mouse
-            const mouse = { x: 0, y: 0, left: false, right: false };
-
-            app.canvas.addEventListener('mousemove', (e) => {
-                mouse.x = e.clientX;
-                mouse.y = e.clientY;
-            });
-
-            app.canvas.addEventListener('mousedown', (e) => {
-                mouse.x = e.clientX;
-                mouse.y = e.clientY;
-                if (e.button === 0) mouse.left = true;
-                if (e.button === 2) mouse.right = true;
-                e.preventDefault();
-            });
-
-            app.canvas.addEventListener('mouseup', (e) => {
-                if (e.button === 0) mouse.left = false;
-                if (e.button === 2) mouse.right = false;
-            });
-
-            app.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-
-            // Zoom
-            app.canvas.addEventListener('wheel', (e) => {
-                e.preventDefault();
-                const zoomSpeed = 0.1;
-                if (e.deltaY < 0) {
-                    camera.zoom = Math.min(camera.zoom + zoomSpeed, 10);
-                } else {
-                    camera.zoom = Math.max(camera.zoom - zoomSpeed, 0.1);
-                }
-            });
-
-            // Keyboard
-            const keys = {};
-            let showGrid = false;
-
-            window.addEventListener('keydown', (e) => {
-                keys[e.key.toLowerCase()] = true;
-                if (e.key.toLowerCase() === 'g') {
-                    showGrid = !showGrid;
-                }
-                // Alt key for freelook toggle
-                if (e.altKey && !camera.freelook) {
-                    camera.freelook = true;
-                    document.getElementById('info').textContent = 'FREELOOK MODE - Alt to exit';
-                    e.preventDefault();
-                }
-            });
-
-            window.addEventListener('keyup', (e) => {
-                keys[e.key.toLowerCase()] = false;
-                // Exit freelook when Alt is released
-                if (!e.altKey && camera.freelook) {
-                    camera.freelook = false;
-                }
-            });
-
-            // Grass tile mapping (from README)
-            const GRASS_MAP = {
-                '0000': 12, // The Void
-                '1000': 15, // Inner Corner - Top Left
-                '0100': 8,  // Inner Corner - Top Right
-                '0010': 0,  // Inner Corner - Bottom Left
-                '0001': 13, // Inner Corner - Bottom Right
-                '1100': 9,  // Horizontal Edge - Ceiling
-                '0011': 3,  // Horizontal Edge - Floor
-                '1010': 11, // Vertical Edge - Right Face
-                '0101': 1,  // Vertical Edge - Left Face
-                '0110': 14, // Diagonal - Forward Slash
-                '1001': 4,  // Diagonal - Back Slash
-                '1110': 7,  // Outer Corner - Bottom Right
-                '1101': 10, // Outer Corner - Bottom Left
-                '1011': 2,  // Outer Corner - Top Right
-                '0111': 5,  // Outer Corner - Top Left
-                '1111': 6   // Full Solid
+            // Load config from tweaker (config.json) and initialize game
+            let config = {
+                playerSpeed: 200,
+                defaultZoom: 3.0,
+                minZoom: 0.25,
+                maxZoom: 10,
+                chunkSize: 16,
+                renderDistance: 5,
+                lodThreshold: 0.8
             };
 
-            function getGrassIdx(x, y) {
-                // Check 4 corners: TL, TR, BL, BR
-                // F (filled/grass) = 1, E (empty/dirt) = 0
-                const tl = getTile(x, y) === 1 ? '1' : '0';
-                const tr = getTile(x + 1, y) === 1 ? '1' : '0';
-                const bl = getTile(x, y + 1) === 1 ? '1' : '0';
-                const br = getTile(x + 1, y + 1) === 1 ? '1' : '0';
-                const key = tl + tr + bl + br;
-                return GRASS_MAP[key] !== undefined ? GRASS_MAP[key] : 6;
-            }
-
-            // Create placeholder texture when image files are missing
-            function createPlaceholderTexture(color) {
-                const canvas = document.createElement('canvas');
-                canvas.width = 64; // 4x4 grid of 16x16 tiles
-                canvas.height = 64;
-                const ctx = canvas.getContext('2d');
-                ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
-                ctx.fillRect(0, 0, 64, 64);
-                return PIXI.Texture.from(canvas);
-            }
-
-
-
-            // Load textures using modern Assets API (v8+)
-            Promise.all([
-                PIXI.Assets.load('Assets/Image/Tile/dirt.png').catch(() => {
-                    console.warn('dirt.png not found, using placeholder');
-                    return createPlaceholderTexture(0x8B4513); // Brown
-                }),
-                PIXI.Assets.load('Assets/Image/Tile/grass.png').catch(() => {
-                    console.warn('grass.png not found, using placeholder');
-                    return createPlaceholderTexture(0x228B22); // Green
+            // Try to load config.json, then initialize game
+            fetch('config.json')
+                .then(res => res.json())
+                .then(data => {
+                    config = { ...config, ...data };
+                    console.log('Config loaded:', config);
                 })
-            ]).then(([dirtTex, grassTex]) => {
-                // Calculate average colors for LOD rendering
-                function getAverageColor(texture) {
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    canvas.width = texture.width;
-                    canvas.height = texture.height;
-
-                    // Draw texture to canvas
-                    const img = texture.source.resource;
-                    ctx.drawImage(img, 0, 0);
-
-                    // Get pixel data
-                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                    const data = imageData.data;
-
-                    let r = 0, g = 0, b = 0, count = 0;
-                    for (let i = 0; i < data.length; i += 4) {
-                        r += data[i];
-                        g += data[i + 1];
-                        b += data[i + 2];
-                        count++;
-                    }
-
-                    r = Math.floor(r / count);
-                    g = Math.floor(g / count);
-                    b = Math.floor(b / count);
-
-                    return (r << 16) | (g << 8) | b; // Return as hex color
-                }
-
-                const avgDirtColor = getAverageColor(dirtTex);
-                const avgGrassColor = getAverageColor(grassTex);
-
-                document.getElementById('info').textContent = 'Generating world...';
-
-                // Pre-generate chunks around spawn to prevent lag spikes
-                const pregenRadius = RENDER_DISTANCE + 2; // Generate extra chunks
-                let chunksGenerated = 0;
-                const totalChunks = (pregenRadius * 2 + 1) * (pregenRadius * 2 + 1);
-
-                for (let cy = -pregenRadius; cy <= pregenRadius; cy++) {
-                    for (let cx = -pregenRadius; cx <= pregenRadius; cx++) {
-                        getChunk(cx, cy); // This generates and caches the chunk
-                        chunksGenerated++;
-                        if (chunksGenerated % 10 === 0) {
-                            document.getElementById('info').textContent =
-                                `Generating world... ${Math.floor(chunksGenerated / totalChunks * 100)}%`;
-                        }
-                    }
-                }
-
-                document.getElementById('info').textContent = 'Ready! Press G for grid, Alt for freelook';
-
-
-                let lastTime = performance.now();
-
-                // Game loop
-                app.ticker.add(() => {
-                    const time = performance.now();
-                    const dt = Math.min((time - lastTime) / 1000, 0.1);
-                    lastTime = time;
-
-                    // Camera movement (WASD)
-                    let moveX = 0, moveY = 0;
-                    if (keys['a'] || keys['arrowleft']) moveX = -1;
-                    if (keys['d'] || keys['arrowright']) moveX = 1;
-                    if (keys['w'] || keys['arrowup']) moveY = -1;
-                    if (keys['s'] || keys['arrowdown']) moveY = 1;
-
-                    // Normalize diagonal movement
-                    if (moveX !== 0 && moveY !== 0) {
-                        moveX *= 0.707;
-                        moveY *= 0.707;
-                    }
-
-                    // Smooth movement (no rounding for smooth interpolation)
-                    player.x += moveX * player.speed * dt;
-                    player.y += moveY * player.speed * dt;
-
-                    // Camera follow or freelook movement
-                    if (camera.freelook) {
-                        // In freelook, WASD moves camera directly
-                        camera.x += moveX * player.speed * dt;
-                        camera.y += moveY * player.speed * dt;
-                    } else {
-                        // Normal mode: camera follows player (player centered on screen)
-                        camera.x = player.x + player.width / 2;
-                        camera.y = player.y + player.height / 2;
-                    }
-
-                    // Update stats (simplified: FPS and location only)
-                    const fps = Math.round(app.ticker.FPS);
-                    document.getElementById('info').textContent = `FPS: ${fps} | Location: ${Math.floor(player.x)}, ${Math.floor(player.y)}`;
-
-                    // Handle input (left=break/dirt, right=place/grass)
-                    if (mouse.left || mouse.right) {
-                        const worldX = Math.floor((mouse.x - world.x) / camera.zoom / TILE_SIZE);
-                        const worldY = Math.floor((mouse.y - world.y) / camera.zoom / TILE_SIZE);
-                        setTile(worldX, worldY, mouse.right ? 1 : 0);
-                    }
-
-                    render();
-                    renderOverlays();
-
-                    // Transform world (camera system - center camera position on screen)
-                    world.scale.set(camera.zoom);
-                    world.x = -camera.x * camera.zoom + app.screen.width / 2;
-                    world.y = -camera.y * camera.zoom + app.screen.height / 2;
-
-                    // Clear previous UI overlays (keep world container)
-                    while (app.stage.children.length > 1) {
-                        app.stage.removeChildAt(1).destroy();
-                    }
-
-                    // Crosshair (screen space - after transform)
-                    const crosshairGraphics = new PIXI.Graphics();
-                    crosshairGraphics.lineStyle(2, 0xffffff, 0.8);
-                    const centerX = app.screen.width / 2;
-                    const centerY = app.screen.height / 2;
-                    const size = 10;
-                    crosshairGraphics.moveTo(centerX - size, centerY);
-                    crosshairGraphics.lineTo(centerX + size, centerY);
-                    crosshairGraphics.moveTo(centerX, centerY - size);
-                    crosshairGraphics.lineTo(centerX, centerY + size);
-                    app.stage.addChild(crosshairGraphics);
+                .catch(() => {
+                    console.log('No config.json found, using defaults');
+                })
+                .finally(() => {
+                    initGame();
                 });
 
-                // Render function - chunk-based to prevent crashes
-                function render() {
-                    // Clear all existing chunk containers every frame
-                    for (const [key, container] of chunkContainers.entries()) {
-                        world.removeChild(container);
-                        container.destroy();
+            function initGame() {
+                // Camera
+                const camera = { x: 0, y: 0, zoom: config.defaultZoom, freelook: false };
+
+                // Player (start in center of world, not at edge)
+                const player = { x: 128, y: 128, width: 16, height: 16, speed: config.playerSpeed };
+
+                // Mouse
+                const mouse = { x: 0, y: 0, left: false, right: false };
+
+                app.canvas.addEventListener('mousemove', (e) => {
+                    mouse.x = e.clientX;
+                    mouse.y = e.clientY;
+                });
+
+                app.canvas.addEventListener('mousedown', (e) => {
+                    mouse.x = e.clientX;
+                    mouse.y = e.clientY;
+                    if (e.button === 0) mouse.left = true;
+                    if (e.button === 2) mouse.right = true;
+                    e.preventDefault();
+                });
+
+                app.canvas.addEventListener('mouseup', (e) => {
+                    if (e.button === 0) mouse.left = false;
+                    if (e.button === 2) mouse.right = false;
+                });
+
+                app.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+                // Exponential zoom
+                app.canvas.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9; // 10% change per scroll
+                    camera.zoom = Math.max(config.minZoom, Math.min(config.maxZoom, camera.zoom * zoomFactor));
+                });
+
+                // Keyboard
+                const keys = {};
+                let showGrid = false;
+
+                window.addEventListener('keydown', (e) => {
+                    keys[e.key.toLowerCase()] = true;
+                    if (e.key.toLowerCase() === 'g') {
+                        showGrid = !showGrid;
                     }
-                    chunkContainers.clear();
+                    // Alt key for freelook toggle
+                    if (e.altKey && !camera.freelook) {
+                        camera.freelook = true;
+                        document.getElementById('info').textContent = 'FREELOOK MODE - Alt to exit';
+                        e.preventDefault();
+                    }
+                });
 
-                    // Calculate player chunk position (round to center player in chunk)
-                    const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
-                    const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
+                window.addEventListener('keyup', (e) => {
+                    keys[e.key.toLowerCase()] = false;
+                    // Exit freelook when Alt is released
+                    if (!e.altKey && camera.freelook) {
+                        camera.freelook = false;
+                    }
+                });
 
-                    // Dynamic render distance based on zoom (more zoom = less chunks needed)
-                    const renderDistance = Math.ceil(5 / camera.zoom);
+                // Grass tile mapping (from README)
+                const GRASS_MAP = {
+                    '0000': 12, // The Void
+                    '1000': 15, // Inner Corner - Top Left
+                    '0100': 8,  // Inner Corner - Top Right
+                    '0010': 0,  // Inner Corner - Bottom Left
+                    '0001': 13, // Inner Corner - Bottom Right
+                    '1100': 9,  // Horizontal Edge - Ceiling
+                    '0011': 3,  // Horizontal Edge - Floor
+                    '1010': 11, // Vertical Edge - Right Face
+                    '0101': 1,  // Vertical Edge - Left Face
+                    '0110': 14, // Diagonal - Forward Slash
+                    '1001': 4,  // Diagonal - Back Slash
+                    '1110': 7,  // Outer Corner - Bottom Right
+                    '1101': 10, // Outer Corner - Bottom Left
+                    '1011': 2,  // Outer Corner - Top Right
+                    '0111': 5,  // Outer Corner - Top Left
+                    '1111': 6   // Full Solid
+                };
 
-                    // Render all visible chunks
-                    let chunksRendered = 0;
-                    for (let cy = playerChunkY - renderDistance; cy <= playerChunkY + renderDistance; cy++) {
-                        for (let cx = playerChunkX - renderDistance; cx <= playerChunkX + renderDistance; cx++) {
-                            renderChunk(cx, cy);
-                            chunksRendered++;
+                function getGrassIdx(x, y) {
+                    // Check 4 corners: TL, TR, BL, BR
+                    // F (filled/grass) = 1, E (empty/dirt) = 0
+                    const tl = getTile(x, y) === 1 ? '1' : '0';
+                    const tr = getTile(x + 1, y) === 1 ? '1' : '0';
+                    const bl = getTile(x, y + 1) === 1 ? '1' : '0';
+                    const br = getTile(x + 1, y + 1) === 1 ? '1' : '0';
+                    const key = tl + tr + bl + br;
+                    return GRASS_MAP[key] !== undefined ? GRASS_MAP[key] : 6;
+                }
+
+                // Create placeholder texture when image files are missing
+                function createPlaceholderTexture(color) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 64; // 4x4 grid of 16x16 tiles
+                    canvas.height = 64;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+                    ctx.fillRect(0, 0, 64, 64);
+                    return PIXI.Texture.from(canvas);
+                }
+
+
+
+                // Load textures using modern Assets API (v8+)
+                Promise.all([
+                    PIXI.Assets.load('Assets/Image/Tile/dirt.png').catch(() => {
+                        console.warn('dirt.png not found, using placeholder');
+                        return createPlaceholderTexture(0x8B4513); // Brown
+                    }),
+                    PIXI.Assets.load('Assets/Image/Tile/grass.png').catch(() => {
+                        console.warn('grass.png not found, using placeholder');
+                        return createPlaceholderTexture(0x228B22); // Green
+                    })
+                ]).then(([dirtTex, grassTex]) => {
+                    // Calculate average colors for LOD rendering
+                    function getAverageColor(texture) {
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = texture.width;
+                        canvas.height = texture.height;
+
+                        // Draw texture to canvas
+                        const img = texture.source.resource;
+                        ctx.drawImage(img, 0, 0);
+
+                        // Get pixel data
+                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        const data = imageData.data;
+
+                        let r = 0, g = 0, b = 0, count = 0;
+                        for (let i = 0; i < data.length; i += 4) {
+                            r += data[i];
+                            g += data[i + 1];
+                            b += data[i + 2];
+                            count++;
+                        }
+
+                        r = Math.floor(r / count);
+                        g = Math.floor(g / count);
+                        b = Math.floor(b / count);
+
+                        return (r << 16) | (g << 8) | b; // Return as hex color
+                    }
+
+                    const avgDirtColor = getAverageColor(dirtTex);
+                    const avgGrassColor = getAverageColor(grassTex);
+
+                    document.getElementById('info').textContent = 'Generating world...';
+
+                    // Pre-generate chunks around spawn to prevent lag spikes
+                    const pregenRadius = RENDER_DISTANCE + 2; // Generate extra chunks
+                    let chunksGenerated = 0;
+                    const totalChunks = (pregenRadius * 2 + 1) * (pregenRadius * 2 + 1);
+
+                    for (let cy = -pregenRadius; cy <= pregenRadius; cy++) {
+                        for (let cx = -pregenRadius; cx <= pregenRadius; cx++) {
+                            getChunk(cx, cy); // This generates and caches the chunk
+                            chunksGenerated++;
+                            if (chunksGenerated % 10 === 0) {
+                                document.getElementById('info').textContent =
+                                    `Generating world... ${Math.floor(chunksGenerated / totalChunks * 100)}%`;
+                            }
                         }
                     }
 
-                    // Update stats with chunk count
-                    const fps = Math.round(app.ticker.FPS);
-                    document.getElementById('info').textContent = `FPS: ${fps} | Location: ${Math.floor(player.x)}, ${Math.floor(player.y)} | Zoom: ${camera.zoom.toFixed(1)}x | Chunks: ${chunksRendered}`;
-                }
+                    document.getElementById('info').textContent = 'Ready! Press G for grid, Alt for freelook';
 
-                // Render a single chunk
-                function renderChunk(cx, cy) {
-                    const key = `${cx},${cy}`;
-                    const chunk = getChunk(cx, cy);
-                    const container = new PIXI.Container();
 
-                    // LOD: If zoomed out, render as solid color rectangles
-                    if (camera.zoom < 1.0) {
-                        const graphics = new PIXI.Graphics();
+                    let lastTime = performance.now();
+
+                    // Game loop
+                    app.ticker.add(() => {
+                        const time = performance.now();
+                        const dt = Math.min((time - lastTime) / 1000, 0.1);
+                        lastTime = time;
+
+                        // Camera movement (WASD)
+                        let moveX = 0, moveY = 0;
+                        if (keys['a'] || keys['arrowleft']) moveX = -1;
+                        if (keys['d'] || keys['arrowright']) moveX = 1;
+                        if (keys['w'] || keys['arrowup']) moveY = -1;
+                        if (keys['s'] || keys['arrowdown']) moveY = 1;
+
+                        // Normalize diagonal movement
+                        if (moveX !== 0 && moveY !== 0) {
+                            moveX *= 0.707;
+                            moveY *= 0.707;
+                        }
+
+                        // Smooth movement (no rounding for smooth interpolation)
+                        player.x += moveX * player.speed * dt;
+                        player.y += moveY * player.speed * dt;
+
+                        // Camera follow or freelook movement
+                        if (camera.freelook) {
+                            // In freelook, WASD moves camera directly
+                            camera.x += moveX * player.speed * dt;
+                            camera.y += moveY * player.speed * dt;
+                        } else {
+                            // Normal mode: camera follows player (player centered on screen)
+                            camera.x = player.x + player.width / 2;
+                            camera.y = player.y + player.height / 2;
+                        }
+
+                        // Update stats (simplified: FPS and location only)
+                        const fps = Math.round(app.ticker.FPS);
+                        document.getElementById('info').textContent = `FPS: ${fps} | Location: ${Math.floor(player.x)}, ${Math.floor(player.y)}`;
+
+                        // Handle input (left=break/dirt, right=place/grass)
+                        if (mouse.left || mouse.right) {
+                            const worldX = Math.floor((mouse.x - world.x) / camera.zoom / TILE_SIZE);
+                            const worldY = Math.floor((mouse.y - world.y) / camera.zoom / TILE_SIZE);
+                            setTile(worldX, worldY, mouse.right ? 1 : 0);
+                        }
+
+                        render();
+                        renderOverlays();
+
+                        // Transform world (camera system - center camera position on screen)
+                        world.scale.set(camera.zoom);
+                        world.x = -camera.x * camera.zoom + app.screen.width / 2;
+                        world.y = -camera.y * camera.zoom + app.screen.height / 2;
+
+                        // Clear previous UI overlays (keep world container)
+                        while (app.stage.children.length > 1) {
+                            app.stage.removeChildAt(1).destroy();
+                        }
+
+                        // Crosshair (screen space - after transform)
+                        const crosshairGraphics = new PIXI.Graphics();
+                        crosshairGraphics.lineStyle(2, 0xffffff, 0.8);
+                        const centerX = app.screen.width / 2;
+                        const centerY = app.screen.height / 2;
+                        const size = 10;
+                        crosshairGraphics.moveTo(centerX - size, centerY);
+                        crosshairGraphics.lineTo(centerX + size, centerY);
+                        crosshairGraphics.moveTo(centerX, centerY - size);
+                        crosshairGraphics.lineTo(centerX, centerY + size);
+                        app.stage.addChild(crosshairGraphics);
+                    });
+
+                    // Render function - chunk-based to prevent crashes
+                    function render() {
+                        // Clear all existing chunk containers every frame
+                        for (const [key, container] of chunkContainers.entries()) {
+                            world.removeChild(container);
+                            container.destroy();
+                        }
+                        chunkContainers.clear();
+
+                        // Calculate player chunk position (round to center player in chunk)
+                        const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
+                        const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
+
+                        // Dynamic render distance based on zoom (more zoom = less chunks needed)
+                        const renderDistance = Math.ceil(5 / camera.zoom);
+
+                        // Render all visible chunks
+                        let chunksRendered = 0;
+                        for (let cy = playerChunkY - renderDistance; cy <= playerChunkY + renderDistance; cy++) {
+                            for (let cx = playerChunkX - renderDistance; cx <= playerChunkX + renderDistance; cx++) {
+                                renderChunk(cx, cy);
+                                chunksRendered++;
+                            }
+                        }
+
+                        // Update stats with chunk count
+                        const fps = Math.round(app.ticker.FPS);
+                        document.getElementById('info').textContent = `FPS: ${fps} | Location: ${Math.floor(player.x)}, ${Math.floor(player.y)} | Zoom: ${camera.zoom.toFixed(2)}x | Chunks: ${chunksRendered}`;
+                    }
+
+                    // Render a single chunk
+                    function renderChunk(cx, cy) {
+                        const key = `${cx},${cy}`;
+                        const chunk = getChunk(cx, cy);
+                        const container = new PIXI.Container();
+
+                        // LOD: If zoomed out below threshold, render as solid color rectangles
+                        if (camera.zoom < config.lodThreshold) {
+                            const graphics = new PIXI.Graphics();
+                            for (let ty = 0; ty < CHUNK_SIZE; ty++) {
+                                for (let tx = 0; tx < CHUNK_SIZE; tx++) {
+                                    const worldX = cx * CHUNK_SIZE + tx;
+                                    const worldY = cy * CHUNK_SIZE + ty;
+                                    const tileType = chunk[ty][tx];
+
+                                    // Use average color based on tile type
+                                    const color = tileType === 1 ? avgGrassColor : avgDirtColor;
+                                    graphics.beginFill(color);
+                                    graphics.drawRect(worldX * TILE_SIZE, worldY * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                                    graphics.endFill();
+                                }
+                            }
+                            container.addChild(graphics);
+                            chunkContainers.set(key, container);
+                            world.addChild(container);
+                            return;
+                        }
+
+                        // Render all tiles in this chunk
                         for (let ty = 0; ty < CHUNK_SIZE; ty++) {
                             for (let tx = 0; tx < CHUNK_SIZE; tx++) {
                                 const worldX = cx * CHUNK_SIZE + tx;
                                 const worldY = cy * CHUNK_SIZE + ty;
-                                const tileType = chunk[ty][tx];
 
-                                // Use average color based on tile type
-                                const color = tileType === 1 ? avgGrassColor : avgDirtColor;
-                                graphics.beginFill(color);
-                                graphics.drawRect(worldX * TILE_SIZE, worldY * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                                graphics.endFill();
-                            }
-                        }
-                        container.addChild(graphics);
-                        chunkContainers.set(key, container);
-                        world.addChild(container);
-                        return;
-                    }
+                                // Dirt tile
+                                const dirtIdx = getDirtIdx(worldX, worldY);
+                                const dirtTexture = getTileTexture(dirtTex, dirtIdx);
+                                const dirtSprite = new PIXI.Sprite(dirtTexture);
+                                dirtSprite.x = worldX * TILE_SIZE;
+                                dirtSprite.y = worldY * TILE_SIZE;
+                                dirtSprite.width = TILE_SIZE;
+                                dirtSprite.height = TILE_SIZE;
+                                container.addChild(dirtSprite);
 
-                    // Render all tiles in this chunk
-                    for (let ty = 0; ty < CHUNK_SIZE; ty++) {
-                        for (let tx = 0; tx < CHUNK_SIZE; tx++) {
-                            const worldX = cx * CHUNK_SIZE + tx;
-                            const worldY = cy * CHUNK_SIZE + ty;
+                                // Grass tile (on visual grid) - only render if this tile or neighbors have grass
+                                const hasGrass = getTile(worldX, worldY) === 1 ||
+                                    getTile(worldX + 1, worldY) === 1 ||
+                                    getTile(worldX, worldY + 1) === 1 ||
+                                    getTile(worldX + 1, worldY + 1) === 1;
 
-                            // Dirt tile
-                            const dirtIdx = getDirtIdx(worldX, worldY);
-                            const dirtTexture = getTileTexture(dirtTex, dirtIdx);
-                            const dirtSprite = new PIXI.Sprite(dirtTexture);
-                            dirtSprite.x = worldX * TILE_SIZE;
-                            dirtSprite.y = worldY * TILE_SIZE;
-                            dirtSprite.width = TILE_SIZE;
-                            dirtSprite.height = TILE_SIZE;
-                            container.addChild(dirtSprite);
-
-                            // Grass tile (on visual grid) - only render if this tile or neighbors have grass
-                            const hasGrass = getTile(worldX, worldY) === 1 ||
-                                getTile(worldX + 1, worldY) === 1 ||
-                                getTile(worldX, worldY + 1) === 1 ||
-                                getTile(worldX + 1, worldY + 1) === 1;
-
-                            if (hasGrass) {
-                                const grassIdx = getGrassIdx(worldX, worldY);
-                                const grassTexture = getTileTexture(grassTex, grassIdx);
-                                const grassSprite = new PIXI.Sprite(grassTexture);
-                                grassSprite.x = (worldX + 0.5) * TILE_SIZE;
-                                grassSprite.y = (worldY + 0.5) * TILE_SIZE;
-                                grassSprite.anchor.set(0.5);
-                                grassSprite.width = TILE_SIZE;
-                                grassSprite.height = TILE_SIZE;
-                                container.addChild(grassSprite);
-                            }
-                        }
-                    }
-
-                    chunkContainers.set(key, container);
-                    world.addChild(container);
-                }
-
-                // Render overlays (grid, highlights, etc) - called after chunk rendering
-                let overlayGraphics = null;
-
-                function renderOverlays() {
-                    // Clear previous overlays
-                    if (overlayGraphics) {
-                        world.removeChild(overlayGraphics);
-                        overlayGraphics.destroy();
-                    }
-
-                    overlayGraphics = new PIXI.Graphics();
-
-                    // Multi-layer grid system (when G is pressed)
-                    if (showGrid) {
-                        const startX = Math.floor(camera.x / TILE_SIZE) - 20;
-                        const endX = Math.ceil((camera.x + app.screen.width / camera.zoom) / TILE_SIZE) + 20;
-                        const startY = Math.floor(camera.y / TILE_SIZE) - 20;
-                        const endY = Math.ceil((camera.y + app.screen.height / camera.zoom) / TILE_SIZE) + 20;
-
-                        // 1. Green shades for grass tiles
-                        for (let y = startY; y < endY; y++) {
-                            for (let x = startX; x < endX; x++) {
-                                if (getTile(x, y) === 1) {
-                                    overlayGraphics.beginFill(0x00ff00, 0.1);
-                                    overlayGraphics.drawRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                                    overlayGraphics.endFill();
+                                if (hasGrass) {
+                                    const grassIdx = getGrassIdx(worldX, worldY);
+                                    const grassTexture = getTileTexture(grassTex, grassIdx);
+                                    const grassSprite = new PIXI.Sprite(grassTexture);
+                                    grassSprite.x = (worldX + 0.5) * TILE_SIZE;
+                                    grassSprite.y = (worldY + 0.5) * TILE_SIZE;
+                                    grassSprite.anchor.set(0.5);
+                                    grassSprite.width = TILE_SIZE;
+                                    grassSprite.height = TILE_SIZE;
+                                    container.addChild(grassSprite);
                                 }
                             }
                         }
 
-                        // 2. Blue chunk boundaries
-                        overlayGraphics.lineStyle(2, 0x0000ff, 0.5);
-                        const chunkStartX = Math.floor(startX / CHUNK_SIZE) * CHUNK_SIZE;
-                        const chunkEndX = Math.ceil(endX / CHUNK_SIZE) * CHUNK_SIZE;
-                        const chunkStartY = Math.floor(startY / CHUNK_SIZE) * CHUNK_SIZE;
-                        const chunkEndY = Math.ceil(endY / CHUNK_SIZE) * CHUNK_SIZE;
-
-                        for (let x = chunkStartX; x <= chunkEndX; x += CHUNK_SIZE) {
-                            overlayGraphics.moveTo(x * TILE_SIZE, chunkStartY * TILE_SIZE);
-                            overlayGraphics.lineTo(x * TILE_SIZE, chunkEndY * TILE_SIZE);
-                        }
-                        for (let y = chunkStartY; y <= chunkEndY; y += CHUNK_SIZE) {
-                            overlayGraphics.moveTo(chunkStartX * TILE_SIZE, y * TILE_SIZE);
-                            overlayGraphics.lineTo(chunkEndX * TILE_SIZE, y * TILE_SIZE);
-                        }
-                        overlayGraphics.stroke(); // Make lines visible
-
-                        // 3. Red tile grid
-                        overlayGraphics.lineStyle(1, 0xff0000, 0.3);
-                        for (let x = startX; x <= endX; x++) {
-                            overlayGraphics.moveTo(x * TILE_SIZE, startY * TILE_SIZE);
-                            overlayGraphics.lineTo(x * TILE_SIZE, endY * TILE_SIZE);
-                        }
-                        for (let y = startY; y <= endY; y++) {
-                            overlayGraphics.moveTo(startX * TILE_SIZE, y * TILE_SIZE);
-                            overlayGraphics.lineTo(endX * TILE_SIZE, y * TILE_SIZE);
-                        }
-                        overlayGraphics.stroke(); // Make lines visible
-
-                        // 4. White visual grid (offset by 0.5 from world grid)
-                        overlayGraphics.lineStyle(0.25, 0xffffff, 0.2); // Very thin, subtle lines
-                        for (let x = startX; x <= endX; x++) {
-                            const visualX = (x + 0.5) * TILE_SIZE;
-                            overlayGraphics.moveTo(visualX, startY * TILE_SIZE);
-                            overlayGraphics.lineTo(visualX, endY * TILE_SIZE);
-                        }
-                        for (let y = startY; y <= endY; y++) {
-                            const visualY = (y + 0.5) * TILE_SIZE;
-                            overlayGraphics.moveTo(startX * TILE_SIZE, visualY);
-                            overlayGraphics.lineTo(endX * TILE_SIZE, visualY);
-                        }
-                        overlayGraphics.stroke(); // Make lines visible
+                        chunkContainers.set(key, container);
+                        world.addChild(container);
                     }
 
-                    world.addChild(overlayGraphics);
-                }
-            });
+                    // Render overlays (grid, highlights, etc) - called after chunk rendering
+                    let overlayGraphics = null;
+
+                    function renderOverlays() {
+                        // Clear previous overlays
+                        if (overlayGraphics) {
+                            world.removeChild(overlayGraphics);
+                            overlayGraphics.destroy();
+                        }
+
+                        overlayGraphics = new PIXI.Graphics();
+
+                        // Multi-layer grid system (when G is pressed)
+                        if (showGrid) {
+                            const startX = Math.floor(camera.x / TILE_SIZE) - 20;
+                            const endX = Math.ceil((camera.x + app.screen.width / camera.zoom) / TILE_SIZE) + 20;
+                            const startY = Math.floor(camera.y / TILE_SIZE) - 20;
+                            const endY = Math.ceil((camera.y + app.screen.height / camera.zoom) / TILE_SIZE) + 20;
+
+                            // 1. Green shades for grass tiles
+                            for (let y = startY; y < endY; y++) {
+                                for (let x = startX; x < endX; x++) {
+                                    if (getTile(x, y) === 1) {
+                                        overlayGraphics.beginFill(0x00ff00, 0.1);
+                                        overlayGraphics.drawRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                                        overlayGraphics.endFill();
+                                    }
+                                }
+                            }
+
+                            // 2. Blue chunk boundaries
+                            overlayGraphics.lineStyle(2, 0x0000ff, 0.5);
+                            const chunkStartX = Math.floor(startX / CHUNK_SIZE) * CHUNK_SIZE;
+                            const chunkEndX = Math.ceil(endX / CHUNK_SIZE) * CHUNK_SIZE;
+                            const chunkStartY = Math.floor(startY / CHUNK_SIZE) * CHUNK_SIZE;
+                            const chunkEndY = Math.ceil(endY / CHUNK_SIZE) * CHUNK_SIZE;
+
+                            for (let x = chunkStartX; x <= chunkEndX; x += CHUNK_SIZE) {
+                                overlayGraphics.moveTo(x * TILE_SIZE, chunkStartY * TILE_SIZE);
+                                overlayGraphics.lineTo(x * TILE_SIZE, chunkEndY * TILE_SIZE);
+                            }
+                            for (let y = chunkStartY; y <= chunkEndY; y += CHUNK_SIZE) {
+                                overlayGraphics.moveTo(chunkStartX * TILE_SIZE, y * TILE_SIZE);
+                                overlayGraphics.lineTo(chunkEndX * TILE_SIZE, y * TILE_SIZE);
+                            }
+                            overlayGraphics.stroke(); // Make lines visible
+
+                            // 3. Red tile grid
+                            overlayGraphics.lineStyle(1, 0xff0000, 0.3);
+                            for (let x = startX; x <= endX; x++) {
+                                overlayGraphics.moveTo(x * TILE_SIZE, startY * TILE_SIZE);
+                                overlayGraphics.lineTo(x * TILE_SIZE, endY * TILE_SIZE);
+                            }
+                            for (let y = startY; y <= endY; y++) {
+                                overlayGraphics.moveTo(startX * TILE_SIZE, y * TILE_SIZE);
+                                overlayGraphics.lineTo(endX * TILE_SIZE, y * TILE_SIZE);
+                            }
+                            overlayGraphics.stroke(); // Make lines visible
+
+                            // 4. White visual grid (offset by 0.5 from world grid)
+                            overlayGraphics.lineStyle(0.25, 0xffffff, 0.2); // Very thin, subtle lines
+                            for (let x = startX; x <= endX; x++) {
+                                const visualX = (x + 0.5) * TILE_SIZE;
+                                overlayGraphics.moveTo(visualX, startY * TILE_SIZE);
+                                overlayGraphics.lineTo(visualX, endY * TILE_SIZE);
+                            }
+                            for (let y = startY; y <= endY; y++) {
+                                const visualY = (y + 0.5) * TILE_SIZE;
+                                overlayGraphics.moveTo(startX * TILE_SIZE, visualY);
+                                overlayGraphics.lineTo(endX * TILE_SIZE, visualY);
+                            }
+                            overlayGraphics.stroke(); // Make lines visible
+                        }
+
+                        world.addChild(overlayGraphics);
+                    }
+                });
+            } // End initGame function
         }); // End window.addEventListener
     </script>
 </body>

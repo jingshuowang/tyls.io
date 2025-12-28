@@ -5,6 +5,6 @@
   "maxZoom": 10,
   "chunkSize": 16,
   "renderDistance": 5,
-  "lodThreshold": 0.3,
+  "lodThreshold": 0.8,
   "notes": ""
 }

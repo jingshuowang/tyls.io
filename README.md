@@ -79,16 +79,11 @@
    * Condition: TL:F, TR:F, BL:F, BR:F
    * Visual: Completely filled with grass (Center of a landmass).
    * Instruction: If (TL==F && TR==F && BL==F && BR==F) use Image ID: [6] 
-1. add grids, red for singular tiles, blue for chunks 8 by 8 tiles, thin white for visual grid and green shade for grass tiles.
-2. fix movement in wasd mode it looks laggy and unsmooth. smoothen it. normalize it too
-3. fix scrolling, its not centered. 
-4. add alt mode and fix scrolling in that too. like dragging stuff around.
-5. add highlight for blocks that are being hovered over. and when mosue pressed go to image 1 when not image 0. for spriotesheet
-6. add a crossbar in the center of the screen4
-7. use my special cursor :D.
-8. i can see that the tiles are good tile the tile coding is correct but u need world genration because its just infinite goofy ahh tiles.
-9. it wen aw snap after a while.
-on top left corner show number of chunks rendered. if its not in render distance no need to render it just keep it in memory. dont load chunks that are not in render distance. and dont load after the game strats the world is built before the game even starts in the laoding screen and after the whole world is build then start it. we can just have 100 chunks rendered for niow and render distance is based on camera size and chunk size(8x8) away from the player. later unlaoded chunks will be fog and would be loaded when player gets close to it. unlaoded ones arew kept in worldfil, just not rendered.
-10. gmae loop is not ideal use this transcript: ok i coundt get it. its like this input, update, render
-11. enchance block placement/obleteration. it isnt connected now and iosnt smooth. it should be reallu smooth like last timne when we smoothened it it connects the 2 points that are loaded if it detects a part not loaded. so it should not be separated like more conneted and firm. same for destroying. and fix this bug. soemtimes when i press left/right it it gets inverted for somne reason. 
 
+1. add alt mode and fix scrolling in that too. like dragging stuff around.
+2. add highlight for blocks that are being hovered over. and when mosue pressed go to image 1 when not image 0. for spriotesheet
+3. add a crossbar in the center of the screen4
+4. use my special cursor :D.
+5. it wen aw snap after a while.
+6. later unlaoded chunks will be fog and would be loaded when player gets close to it. unlaoded ones arew kept in worldfil, just not rendered.
+7. enchance block placement/obleteration. it isnt connected now and iosnt smooth. it should be reallu smooth like last timne when we smoothened it it connects the 2 points that are loaded if it detects a part not loaded. so it should not be separated like more conneted and firm. same for destroying. and fix this bug. soemtimes when i press left/right it it gets inverted for somne reason.
