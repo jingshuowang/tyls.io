@@ -110,49 +110,62 @@
 
         app.view.addEventListener('contextmenu', (e) => e.preventDefault());
 
-        // Render
-        function render() {
-            world.removeChildren();
 
-            const startX = Math.floor(camera.x / TILE_SIZE) - 20;
-            const endX = Math.ceil((camera.x + app.screen.width / camera.zoom) / TILE_SIZE) + 20;
-            const startY = Math.floor(camera.y / TILE_SIZE) - 20;
-            const endY = Math.ceil((camera.y + app.screen.height / camera.zoom) / TILE_SIZE) + 20;
+        // Load textures and wait for them
+        const loader = PIXI.Loader.shared;
+        loader.add('dirt', 'Assets/Image/Tile/dirt.png');
+        loader.add('grass', 'Assets/Image/Tile/grass.png');
 
-            for (let y = startY; y < endY; y++) {
-                for (let x = startX; x < endX; x++) {
-                    const tileValue = getTile(x, y);
-                    const idx = getDirtIdx(x, y);
-                    const tex = getTileTexture(dirtTex.baseTexture, idx);
+        loader.load((loader, resources) => {
+            const dirtTex = resources.dirt.texture;
+            const grassTex = resources.grass.texture;
 
-                    const sprite = new PIXI.Sprite(tex);
-                    sprite.x = x * TILE_SIZE;
-                    sprite.y = y * TILE_SIZE;
-                    sprite.width = TILE_SIZE;
-                    sprite.height = TILE_SIZE;
-                    world.addChild(sprite);
+            document.getElementById('info').textContent = 'Ready! Left=Grass, Right=Dirt';
+
+            // Game loop
+            app.ticker.add(() => {
+                // Handle input
+                if (mouse.left || mouse.right) {
+                    const worldX = Math.floor((mouse.x - world.x) / camera.zoom / TILE_SIZE);
+                    const worldY = Math.floor((mouse.y - world.y) / camera.zoom / TILE_SIZE);
+                    setTile(worldX, worldY, mouse.left ? 1 : 0);
                 }
+
+                render();
+            });
+
+            // Render function (moved inside loader callback to access textures)
+            function render() {
+                world.removeChildren();
+
+                const startX = Math.floor(camera.x / TILE_SIZE) - 20;
+                const endX = Math.ceil((camera.x + app.screen.width / camera.zoom) / TILE_SIZE) + 20;
+                const startY = Math.floor(camera.y / TILE_SIZE) - 20;
+                const endY = Math.ceil((camera.y + app.screen.height / camera.zoom) / TILE_SIZE) + 20;
+
+                for (let y = startY; y < endY; y++) {
+                    for (let x = startX; x < endX; x++) {
+                        const tileValue = getTile(x, y);
+
+                        // Get dirt variant from 4x4 grid
+                        const idx = getDirtIdx(x, y);
+                        const tex = getTileTexture(dirtTex.baseTexture, idx);
+
+                        const sprite = new PIXI.Sprite(tex);
+                        sprite.x = x * TILE_SIZE;
+                        sprite.y = y * TILE_SIZE;
+                        sprite.width = TILE_SIZE;
+                        sprite.height = TILE_SIZE;
+                        world.addChild(sprite);
+                    }
+                }
+
+                // Transform
+                world.scale.set(camera.zoom);
+                world.x = -camera.x * camera.zoom + app.screen.width / 2;
+                world.y = -camera.y * camera.zoom + app.screen.height / 2;
             }
-
-            // Transform
-            world.scale.set(camera.zoom);
-            world.x = -camera.x * camera.zoom + app.screen.width / 2;
-            world.y = -camera.y * camera.zoom + app.screen.height / 2;
-        }
-
-        // Game loop
-        app.ticker.add(() => {
-            // Handle input
-            if (mouse.left || mouse.right) {
-                const worldX = Math.floor((mouse.x - world.x) / camera.zoom / TILE_SIZE);
-                const worldY = Math.floor((mouse.y - world.y) / camera.zoom / TILE_SIZE);
-                setTile(worldX, worldY, mouse.left ? 1 : 0);
-            }
-
-            render();
         });
-
-        document.getElementById('info').textContent = 'Ready! Left=Grass, Right=Dirt';
     </script>
 </body>
 
