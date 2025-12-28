@@ -30,233 +30,236 @@
     <div id="info">Loading...</div>
     <script src="https://unpkg.com/pixi.js@8.x/dist/pixi.min.js"></script>
     <script>
-        // Settings
-        const TILE_SIZE = 16;
-        const CHUNK_SIZE = 16;
+        // Wait for PixiJS to load
+        window.addEventListener('load', () => {
+            // Settings
+            const TILE_SIZE = 16;
+            const CHUNK_SIZE = 16;
 
-        // PixiJS App
-        const app = new PIXI.Application({
-            width: window.innerWidth,
-            height: window.innerHeight,
-            backgroundColor: 0x1a1a1a,
-            antialias: false
-        });
-        document.body.appendChild(app.view);
+            // PixiJS App
+            const app = new PIXI.Application({
+                width: window.innerWidth,
+                height: window.innerHeight,
+                backgroundColor: 0x1a1a1a,
+                antialias: false
+            });
+            document.body.appendChild(app.view);
 
-        // Pixel-perfect (v8 compatible)
-        PIXI.BaseTexture.defaultOptions.scaleMode = PIXI.SCALE_MODES.NEAREST;
-        app.ticker.maxFPS = 64;
+            // Pixel-perfect (v8 compatible)
+            PIXI.BaseTexture.defaultOptions.scaleMode = PIXI.SCALE_MODES.NEAREST;
+            app.ticker.maxFPS = 64;
 
-        // Load textures
-        const grassTex = PIXI.Texture.from('Assets/Image/Tile/grass.png');
-        const dirtTex = PIXI.Texture.from('Assets/Image/Tile/dirt.png');
+            // Load textures
+            const grassTex = PIXI.Texture.from('Assets/Image/Tile/grass.png');
+            const dirtTex = PIXI.Texture.from('Assets/Image/Tile/dirt.png');
 
-        // World container
-        const world = new PIXI.Container();
-        app.stage.addChild(world);
+            // World container
+            const world = new PIXI.Container();
+            app.stage.addChild(world);
 
-        // World data
-        const tiles = new Map(); // "x,y" -> 0=dirt, 1=grass
+            // World data
+            const tiles = new Map(); // "x,y" -> 0=dirt, 1=grass
 
-        function getTile(x, y) {
-            const key = `${x},${y}`;
-            if (!tiles.has(key)) {
-                // Generate with noise
-                const noise = Math.sin(x * 0.05) * Math.cos(y * 0.05);
-                tiles.set(key, noise > 0.1 ? 0 : 1);
-            }
-            return tiles.get(key);
-        }
-
-        function setTile(x, y, value) {
-            tiles.set(`${x},${y}`, value);
-        }
-
-        // Get dirt variant (4x4 grid)
-        function getDirtIdx(x, y) {
-            const seed = x * 374761393 + y * 668265263;
-            let value = Math.sin(seed) * 43758.5453;
-            return Math.floor((value - Math.floor(value)) * 16);
-        }
-
-        function getTileTexture(baseTex, idx) {
-            const col = idx % 4;
-            const row = Math.floor(idx / 4);
-            return new PIXI.Texture(baseTex, new PIXI.Rectangle(col * 16, row * 16, 16, 16));
-        }
-
-        // Camera
-        const camera = { x: 0, y: 0, zoom: 3 };
-
-        // Mouse
-        const mouse = { x: 0, y: 0, left: false, right: false };
-
-        app.view.addEventListener('mousemove', (e) => {
-            mouse.x = e.clientX;
-            mouse.y = e.clientY;
-        });
-
-        app.view.addEventListener('mousedown', (e) => {
-            if (e.button === 0) mouse.left = true;
-            if (e.button === 2) mouse.right = true;
-            e.preventDefault();
-        });
-
-        app.view.addEventListener('mouseup', (e) => {
-            if (e.button === 0) mouse.left = false;
-            if (e.button === 2) mouse.right = false;
-        });
-
-        app.view.addEventListener('contextmenu', (e) => e.preventDefault());
-
-        // Keyboard
-        const keys = {};
-        let showGrid = false;
-
-        window.addEventListener('keydown', (e) => {
-            keys[e.key.toLowerCase()] = true;
-            if (e.key.toLowerCase() === 'g') {
-                showGrid = !showGrid;
-            }
-        });
-
-        window.addEventListener('keyup', (e) => {
-            keys[e.key.toLowerCase()] = false;
-        });
-
-        // Grass tile mapping (from README)
-        const GRASS_MAP = {
-            '0000': 12, // The Void
-            '1000': 15, // Inner Corner - Top Left
-            '0100': 8,  // Inner Corner - Top Right
-            '0010': 0,  // Inner Corner - Bottom Left
-            '0001': 13, // Inner Corner - Bottom Right
-            '1100': 9,  // Horizontal Edge - Ceiling
-            '0011': 3,  // Horizontal Edge - Floor
-            '1010': 11, // Vertical Edge - Right Face
-            '0101': 1,  // Vertical Edge - Left Face
-            '0110': 14, // Diagonal - Forward Slash
-            '1001': 4,  // Diagonal - Back Slash
-            '1110': 7,  // Outer Corner - Bottom Right
-            '1101': 10, // Outer Corner - Bottom Left
-            '1011': 2,  // Outer Corner - Top Right
-            '0111': 5,  // Outer Corner - Top Left
-            '1111': 6   // Full Solid
-        };
-
-        function getGrassIdx(x, y) {
-            // Check 4 corners: TL, TR, BL, BR
-            // F (filled/grass) = 1, E (empty/dirt) = 0
-            const tl = getTile(x, y) === 1 ? '1' : '0';
-            const tr = getTile(x + 1, y) === 1 ? '1' : '0';
-            const bl = getTile(x, y + 1) === 1 ? '1' : '0';
-            const br = getTile(x + 1, y + 1) === 1 ? '1' : '0';
-            const key = tl + tr + bl + br;
-            return GRASS_MAP[key] !== undefined ? GRASS_MAP[key] : 6;
-        }
-
-        // Create placeholder texture when image files are missing
-        function createPlaceholderTexture(color) {
-            const canvas = document.createElement('canvas');
-            canvas.width = 64; // 4x4 grid of 16x16 tiles
-            canvas.height = 64;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
-            ctx.fillRect(0, 0, 64, 64);
-            return PIXI.Texture.from(canvas);
-        }
-
-
-
-        // Load textures using modern Assets API (v8+)
-        Promise.all([
-            PIXI.Assets.load('Assets/Image/Tile/dirt.png').catch(() => {
-                console.warn('dirt.png not found, using placeholder');
-                return createPlaceholderTexture(0x8B4513); // Brown
-            }),
-            PIXI.Assets.load('Assets/Image/Tile/grass.png').catch(() => {
-                console.warn('grass.png not found, using placeholder');
-                return createPlaceholderTexture(0x228B22); // Green
-            })
-        ]).then(([dirtTex, grassTex]) => {
-            document.getElementById('info').textContent = 'Ready! Left=Grass, Right=Dirt';
-
-            // Game loop
-            app.ticker.add(() => {
-                // Handle input
-                if (mouse.left || mouse.right) {
-                    const worldX = Math.floor((mouse.x - world.x) / camera.zoom / TILE_SIZE);
-                    const worldY = Math.floor((mouse.y - world.y) / camera.zoom / TILE_SIZE);
-                    setTile(worldX, worldY, mouse.left ? 1 : 0);
+            function getTile(x, y) {
+                const key = `${x},${y}`;
+                if (!tiles.has(key)) {
+                    // Generate with noise
+                    const noise = Math.sin(x * 0.05) * Math.cos(y * 0.05);
+                    tiles.set(key, noise > 0.1 ? 0 : 1);
                 }
+                return tiles.get(key);
+            }
 
-                render();
+            function setTile(x, y, value) {
+                tiles.set(`${x},${y}`, value);
+            }
+
+            // Get dirt variant (4x4 grid)
+            function getDirtIdx(x, y) {
+                const seed = x * 374761393 + y * 668265263;
+                let value = Math.sin(seed) * 43758.5453;
+                return Math.floor((value - Math.floor(value)) * 16);
+            }
+
+            function getTileTexture(baseTex, idx) {
+                const col = idx % 4;
+                const row = Math.floor(idx / 4);
+                return new PIXI.Texture(baseTex, new PIXI.Rectangle(col * 16, row * 16, 16, 16));
+            }
+
+            // Camera
+            const camera = { x: 0, y: 0, zoom: 3 };
+
+            // Mouse
+            const mouse = { x: 0, y: 0, left: false, right: false };
+
+            app.view.addEventListener('mousemove', (e) => {
+                mouse.x = e.clientX;
+                mouse.y = e.clientY;
             });
 
-            // Render function (moved inside loader callback to access textures)
-            function render() {
-                world.removeChildren();
+            app.view.addEventListener('mousedown', (e) => {
+                if (e.button === 0) mouse.left = true;
+                if (e.button === 2) mouse.right = true;
+                e.preventDefault();
+            });
 
-                const startX = Math.floor(camera.x / TILE_SIZE) - 20;
-                const endX = Math.ceil((camera.x + app.screen.width / camera.zoom) / TILE_SIZE) + 20;
-                const startY = Math.floor(camera.y / TILE_SIZE) - 20;
-                const endY = Math.ceil((camera.y + app.screen.height / camera.zoom) / TILE_SIZE) + 20;
+            app.view.addEventListener('mouseup', (e) => {
+                if (e.button === 0) mouse.left = false;
+                if (e.button === 2) mouse.right = false;
+            });
 
-                // Render dirt tiles
-                for (let y = startY; y < endY; y++) {
-                    for (let x = startX; x < endX; x++) {
-                        const idx = getDirtIdx(x, y);
-                        const tex = getTileTexture(dirtTex.baseTexture, idx);
+            app.view.addEventListener('contextmenu', (e) => e.preventDefault());
 
-                        const sprite = new PIXI.Sprite(tex);
-                        sprite.x = x * TILE_SIZE;
-                        sprite.y = y * TILE_SIZE;
-                        sprite.width = TILE_SIZE;
-                        sprite.height = TILE_SIZE;
-                        world.addChild(sprite);
-                    }
+            // Keyboard
+            const keys = {};
+            let showGrid = false;
+
+            window.addEventListener('keydown', (e) => {
+                keys[e.key.toLowerCase()] = true;
+                if (e.key.toLowerCase() === 'g') {
+                    showGrid = !showGrid;
                 }
+            });
 
-                // Render grass tiles (on visual grid - offset by 0.5)
-                for (let y = startY; y < endY; y++) {
-                    for (let x = startX; x < endX; x++) {
-                        const grassIdx = getGrassIdx(x, y);
-                        const grassTexture = getTileTexture(grassTex.baseTexture, grassIdx);
+            window.addEventListener('keyup', (e) => {
+                keys[e.key.toLowerCase()] = false;
+            });
 
-                        const grassSprite = new PIXI.Sprite(grassTexture);
-                        grassSprite.x = (x + 0.5) * TILE_SIZE;
-                        grassSprite.y = (y + 0.5) * TILE_SIZE;
-                        grassSprite.anchor.set(0.5);
-                        grassSprite.width = TILE_SIZE;
-                        grassSprite.height = TILE_SIZE;
-                        world.addChild(grassSprite);
-                    }
-                }
+            // Grass tile mapping (from README)
+            const GRASS_MAP = {
+                '0000': 12, // The Void
+                '1000': 15, // Inner Corner - Top Left
+                '0100': 8,  // Inner Corner - Top Right
+                '0010': 0,  // Inner Corner - Bottom Left
+                '0001': 13, // Inner Corner - Bottom Right
+                '1100': 9,  // Horizontal Edge - Ceiling
+                '0011': 3,  // Horizontal Edge - Floor
+                '1010': 11, // Vertical Edge - Right Face
+                '0101': 1,  // Vertical Edge - Left Face
+                '0110': 14, // Diagonal - Forward Slash
+                '1001': 4,  // Diagonal - Back Slash
+                '1110': 7,  // Outer Corner - Bottom Right
+                '1101': 10, // Outer Corner - Bottom Left
+                '1011': 2,  // Outer Corner - Top Right
+                '0111': 5,  // Outer Corner - Top Left
+                '1111': 6   // Full Solid
+            };
 
-                // Draw white grid if enabled
-                if (showGrid) {
-                    const gridGraphics = new PIXI.Graphics();
-                    gridGraphics.lineStyle(0.5, 0xffffff, 0.3); // Thin white lines
-
-                    for (let x = startX; x <= endX; x++) {
-                        gridGraphics.moveTo(x * TILE_SIZE, startY * TILE_SIZE);
-                        gridGraphics.lineTo(x * TILE_SIZE, endY * TILE_SIZE);
-                    }
-
-                    for (let y = startY; y <= endY; y++) {
-                        gridGraphics.moveTo(startX * TILE_SIZE, y * TILE_SIZE);
-                        gridGraphics.lineTo(endX * TILE_SIZE, y * TILE_SIZE);
-                    }
-
-                    world.addChild(gridGraphics);
-                }
-
-                // Transform
-                world.scale.set(camera.zoom);
-                world.x = -camera.x * camera.zoom + app.screen.width / 2;
-                world.y = -camera.y * camera.zoom + app.screen.height / 2;
+            function getGrassIdx(x, y) {
+                // Check 4 corners: TL, TR, BL, BR
+                // F (filled/grass) = 1, E (empty/dirt) = 0
+                const tl = getTile(x, y) === 1 ? '1' : '0';
+                const tr = getTile(x + 1, y) === 1 ? '1' : '0';
+                const bl = getTile(x, y + 1) === 1 ? '1' : '0';
+                const br = getTile(x + 1, y + 1) === 1 ? '1' : '0';
+                const key = tl + tr + bl + br;
+                return GRASS_MAP[key] !== undefined ? GRASS_MAP[key] : 6;
             }
-        });
+
+            // Create placeholder texture when image files are missing
+            function createPlaceholderTexture(color) {
+                const canvas = document.createElement('canvas');
+                canvas.width = 64; // 4x4 grid of 16x16 tiles
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+                ctx.fillRect(0, 0, 64, 64);
+                return PIXI.Texture.from(canvas);
+            }
+
+
+
+            // Load textures using modern Assets API (v8+)
+            Promise.all([
+                PIXI.Assets.load('Assets/Image/Tile/dirt.png').catch(() => {
+                    console.warn('dirt.png not found, using placeholder');
+                    return createPlaceholderTexture(0x8B4513); // Brown
+                }),
+                PIXI.Assets.load('Assets/Image/Tile/grass.png').catch(() => {
+                    console.warn('grass.png not found, using placeholder');
+                    return createPlaceholderTexture(0x228B22); // Green
+                })
+            ]).then(([dirtTex, grassTex]) => {
+                document.getElementById('info').textContent = 'Ready! Left=Grass, Right=Dirt';
+
+                // Game loop
+                app.ticker.add(() => {
+                    // Handle input
+                    if (mouse.left || mouse.right) {
+                        const worldX = Math.floor((mouse.x - world.x) / camera.zoom / TILE_SIZE);
+                        const worldY = Math.floor((mouse.y - world.y) / camera.zoom / TILE_SIZE);
+                        setTile(worldX, worldY, mouse.left ? 1 : 0);
+                    }
+
+                    render();
+                });
+
+                // Render function (moved inside loader callback to access textures)
+                function render() {
+                    world.removeChildren();
+
+                    const startX = Math.floor(camera.x / TILE_SIZE) - 20;
+                    const endX = Math.ceil((camera.x + app.screen.width / camera.zoom) / TILE_SIZE) + 20;
+                    const startY = Math.floor(camera.y / TILE_SIZE) - 20;
+                    const endY = Math.ceil((camera.y + app.screen.height / camera.zoom) / TILE_SIZE) + 20;
+
+                    // Render dirt tiles
+                    for (let y = startY; y < endY; y++) {
+                        for (let x = startX; x < endX; x++) {
+                            const idx = getDirtIdx(x, y);
+                            const tex = getTileTexture(dirtTex.baseTexture, idx);
+
+                            const sprite = new PIXI.Sprite(tex);
+                            sprite.x = x * TILE_SIZE;
+                            sprite.y = y * TILE_SIZE;
+                            sprite.width = TILE_SIZE;
+                            sprite.height = TILE_SIZE;
+                            world.addChild(sprite);
+                        }
+                    }
+
+                    // Render grass tiles (on visual grid - offset by 0.5)
+                    for (let y = startY; y < endY; y++) {
+                        for (let x = startX; x < endX; x++) {
+                            const grassIdx = getGrassIdx(x, y);
+                            const grassTexture = getTileTexture(grassTex.baseTexture, grassIdx);
+
+                            const grassSprite = new PIXI.Sprite(grassTexture);
+                            grassSprite.x = (x + 0.5) * TILE_SIZE;
+                            grassSprite.y = (y + 0.5) * TILE_SIZE;
+                            grassSprite.anchor.set(0.5);
+                            grassSprite.width = TILE_SIZE;
+                            grassSprite.height = TILE_SIZE;
+                            world.addChild(grassSprite);
+                        }
+                    }
+
+                    // Draw white grid if enabled
+                    if (showGrid) {
+                        const gridGraphics = new PIXI.Graphics();
+                        gridGraphics.lineStyle(0.5, 0xffffff, 0.3); // Thin white lines
+
+                        for (let x = startX; x <= endX; x++) {
+                            gridGraphics.moveTo(x * TILE_SIZE, startY * TILE_SIZE);
+                            gridGraphics.lineTo(x * TILE_SIZE, endY * TILE_SIZE);
+                        }
+
+                        for (let y = startY; y <= endY; y++) {
+                            gridGraphics.moveTo(startX * TILE_SIZE, y * TILE_SIZE);
+                            gridGraphics.lineTo(endX * TILE_SIZE, y * TILE_SIZE);
+                        }
+
+                        world.addChild(gridGraphics);
+                    }
+
+                    // Transform
+                    world.scale.set(camera.zoom);
+                    world.x = -camera.x * camera.zoom + app.screen.width / 2;
+                    world.y = -camera.y * camera.zoom + app.screen.height / 2;
+                }
+            });
+        }); // End window.addEventListener
     </script>
 </body>
 
