@@ -59,8 +59,13 @@
             app.stage.addChild(world);
 
 
-            // World data
-            const tiles = new Map(); // "x,y" -> 0=dirt, 1=grass
+
+
+            // Chunk-based world data
+            const RENDER_DISTANCE = 5; // chunks
+            const chunks = new Map(); // "cx,cy" -> chunk data
+            const chunkContainers = new Map(); // "cx,cy" -> PIXI.Container
+            let chunksRendered = 0;
 
             // Simple Perlin-like noise
             function noise2D(x, y) {
@@ -79,19 +84,51 @@
                     (hash(c) * (1 - u) + hash(d) * u) * v;
             }
 
-            function getTile(x, y) {
-                const key = `${x},${y}`;
-                if (!tiles.has(key)) {
-                    // Generate with Perlin noise
-                    const scale = 0.05;
-                    const noise = noise2D(x * scale, y * scale);
-                    tiles.set(key, noise > 0.3 ? 1 : 0); // 1=grass, 0=dirt
+            // Get or create chunk
+            function getChunk(cx, cy) {
+                const key = `${cx},${cy}`;
+                if (!chunks.has(key)) {
+                    // Generate chunk
+                    const chunk = [];
+                    for (let ty = 0; ty < CHUNK_SIZE; ty++) {
+                        chunk[ty] = [];
+                        for (let tx = 0; tx < CHUNK_SIZE; tx++) {
+                            const worldX = cx * CHUNK_SIZE + tx;
+                            const worldY = cy * CHUNK_SIZE + ty;
+                            const scale = 0.05;
+                            const noise = noise2D(worldX * scale, worldY * scale);
+                            chunk[ty][tx] = noise > 0.3 ? 1 : 0; // 1=grass, 0=dirt
+                        }
+                    }
+                    chunks.set(key, chunk);
                 }
-                return tiles.get(key);
+                return chunks.get(key);
+            }
+
+            function getTile(x, y) {
+                const cx = Math.floor(x / CHUNK_SIZE);
+                const cy = Math.floor(y / CHUNK_SIZE);
+                const tx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                const ty = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                const chunk = getChunk(cx, cy);
+                return chunk[ty][tx];
             }
 
             function setTile(x, y, value) {
-                tiles.set(`${x},${y}`, value);
+                const cx = Math.floor(x / CHUNK_SIZE);
+                const cy = Math.floor(y / CHUNK_SIZE);
+                const tx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                const ty = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                const chunk = getChunk(cx, cy);
+                chunk[ty][tx] = value;
+                // Mark chunk for re-render
+                const key = `${cx},${cy}`;
+                if (chunkContainers.has(key)) {
+                    const container = chunkContainers.get(key);
+                    world.removeChild(container);
+                    container.destroy({ children: true });
+                    chunkContainers.delete(key);
+                }
             }
 
             // Get dirt variant (4x4 grid)
@@ -271,63 +308,106 @@
                     render();
                 });
 
-                // Render function (moved inside loader callback to access textures)
+                // Render function - chunk-based to prevent crashes
                 function render() {
-                    world.removeChildren();
+                    // Calculate player chunk position
+                    const playerChunkX = Math.floor(player.x / TILE_SIZE / CHUNK_SIZE);
+                    const playerChunkY = Math.floor(player.y / TILE_SIZE / CHUNK_SIZE);
 
-                    const startX = Math.floor(camera.x / TILE_SIZE) - 20;
-                    const endX = Math.ceil((camera.x + app.screen.width / camera.zoom) / TILE_SIZE) + 20;
-                    const startY = Math.floor(camera.y / TILE_SIZE) - 20;
-                    const endY = Math.ceil((camera.y + app.screen.height / camera.zoom) / TILE_SIZE) + 20;
-
-                    // Render dirt tiles
-                    for (let y = startY; y < endY; y++) {
-                        for (let x = startX; x < endX; x++) {
-                            const idx = getDirtIdx(x, y);
-                            const tex = getTileTexture(dirtTex.baseTexture, idx);
-
-                            const sprite = new PIXI.Sprite(tex);
-                            sprite.x = x * TILE_SIZE;
-                            sprite.y = y * TILE_SIZE;
-                            sprite.width = TILE_SIZE;
-                            sprite.height = TILE_SIZE;
-                            world.addChild(sprite);
+                    // Determine which chunks to render (within RENDER_DISTANCE)
+                    const chunksToRender = new Set();
+                    for (let cy = playerChunkY - RENDER_DISTANCE; cy <= playerChunkY + RENDER_DISTANCE; cy++) {
+                        for (let cx = playerChunkX - RENDER_DISTANCE; cx <= playerChunkX + RENDER_DISTANCE; cx++) {
+                            chunksToRender.add(`${cx},${cy}`);
                         }
                     }
 
-                    // Render grass tiles (on visual grid - offset by 0.5)
-                    for (let y = startY; y < endY; y++) {
-                        for (let x = startX; x < endX; x++) {
-                            const grassIdx = getGrassIdx(x, y);
-                            const grassTexture = getTileTexture(grassTex.baseTexture, grassIdx);
+                    // Remove chunks that are out of range
+                    for (const [key, container] of chunkContainers.entries()) {
+                        if (!chunksToRender.has(key)) {
+                            world.removeChild(container);
+                            container.destroy({ children: true });
+                            chunkContainers.delete(key);
+                        }
+                    }
 
+                    // Render/update chunks within range
+                    chunksRendered = 0;
+                    for (const key of chunksToRender) {
+                        if (!chunkContainers.has(key)) {
+                            const [cx, cy] = key.split(',').map(Number);
+                            renderChunk(cx, cy);
+                        }
+                        chunksRendered++;
+                    }
+
+                    // Update stats with chunk count
+                    const fps = Math.round(app.ticker.FPS);
+                    document.getElementById('info').textContent = `FPS: ${fps} | Location: ${Math.floor(player.x)}, ${Math.floor(player.y)} | Chunks: ${chunksRendered}`;
+                }
+
+                // Render a single chunk
+                function renderChunk(cx, cy) {
+                    const key = `${cx},${cy}`;
+                    const chunk = getChunk(cx, cy);
+                    const container = new PIXI.Container();
+
+                    // Render all tiles in this chunk
+                    for (let ty = 0; ty < CHUNK_SIZE; ty++) {
+                        for (let tx = 0; tx < CHUNK_SIZE; tx++) {
+                            const worldX = cx * CHUNK_SIZE + tx;
+                            const worldY = cy * CHUNK_SIZE + ty;
+
+                            // Dirt tile
+                            const dirtIdx = getDirtIdx(worldX, worldY);
+                            const dirtTexture = getTileTexture(dirtTex.baseTexture, dirtIdx);
+                            const dirtSprite = new PIXI.Sprite(dirtTexture);
+                            dirtSprite.x = worldX * TILE_SIZE;
+                            dirtSprite.y = worldY * TILE_SIZE;
+                            dirtSprite.width = TILE_SIZE;
+                            dirtSprite.height = TILE_SIZE;
+                            container.addChild(dirtSprite);
+
+                            // Grass tile (on visual grid)
+                            const grassIdx = getGrassIdx(worldX, worldY);
+                            const grassTexture = getTileTexture(grassTex.baseTexture, grassIdx);
                             const grassSprite = new PIXI.Sprite(grassTexture);
-                            grassSprite.x = (x + 0.5) * TILE_SIZE;
-                            grassSprite.y = (y + 0.5) * TILE_SIZE;
+                            grassSprite.x = (worldX + 0.5) * TILE_SIZE;
+                            grassSprite.y = (worldY + 0.5) * TILE_SIZE;
                             grassSprite.anchor.set(0.5);
                             grassSprite.width = TILE_SIZE;
                             grassSprite.height = TILE_SIZE;
-                            world.addChild(grassSprite);
+                            container.addChild(grassSprite);
                         }
                     }
 
+                    chunkContainers.set(key, container);
+                    world.addChild(container);
+                }
+
+                // Render overlays (grid, highlights, etc) - called after chunk rendering
+                function renderOverlays() {
                     // Multi-layer grid system (when G is pressed)
                     if (showGrid) {
                         const gridGraphics = new PIXI.Graphics();
+                        const startX = Math.floor(camera.x / TILE_SIZE) - 20;
+                        const endX = Math.ceil((camera.x + app.screen.width / camera.zoom) / TILE_SIZE) + 20;
+                        const startY = Math.floor(camera.y / TILE_SIZE) - 20;
+                        const endY = Math.ceil((camera.y + app.screen.height / camera.zoom) / TILE_SIZE) + 20;
 
-                        // 1. Green shades for grass tiles on world grid
+                        // 1. Green shades for grass tiles
                         for (let y = startY; y < endY; y++) {
                             for (let x = startX; x < endX; x++) {
-                                if (getTile(x, y) === 1) { // 1 = grass
-                                    gridGraphics.beginFill(0x00ff00, 0.1); // Light green
+                                if (getTile(x, y) === 1) {
+                                    gridGraphics.beginFill(0x00ff00, 0.1);
                                     gridGraphics.drawRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
                                     gridGraphics.endFill();
                                 }
                             }
                         }
 
-                        // 2. Blue lines for chunk boundaries
-                        gridGraphics.lineStyle(2, 0x0000ff, 0.5); // Blue, thicker
+                        // 2. Blue chunk boundaries
+                        gridGraphics.lineStyle(2, 0x0000ff, 0.5);
                         const chunkStartX = Math.floor(startX / CHUNK_SIZE) * CHUNK_SIZE;
                         const chunkEndX = Math.ceil(endX / CHUNK_SIZE) * CHUNK_SIZE;
                         const chunkStartY = Math.floor(startY / CHUNK_SIZE) * CHUNK_SIZE;
@@ -342,8 +422,8 @@
                             gridGraphics.lineTo(chunkEndX * TILE_SIZE, y * TILE_SIZE);
                         }
 
-                        // 3. Red lines for tile grid (world grid)
-                        gridGraphics.lineStyle(1, 0xff0000, 0.3); // Red, medium
+                        // 3. Red tile grid
+                        gridGraphics.lineStyle(1, 0xff0000, 0.3);
                         for (let x = startX; x <= endX; x++) {
                             gridGraphics.moveTo(x * TILE_SIZE, startY * TILE_SIZE);
                             gridGraphics.lineTo(x * TILE_SIZE, endY * TILE_SIZE);
@@ -353,8 +433,8 @@
                             gridGraphics.lineTo(endX * TILE_SIZE, y * TILE_SIZE);
                         }
 
-                        // 4. White lines for visual grid (grass alignment grid)
-                        gridGraphics.lineStyle(0.5, 0xffffff, 0.2); // White, very thin
+                        // 4. White visual grid
+                        gridGraphics.lineStyle(0.5, 0xffffff, 0.2);
                         for (let x = startX; x <= endX; x++) {
                             const visualX = (x + 0.5) * TILE_SIZE;
                             gridGraphics.moveTo(visualX, startY * TILE_SIZE);

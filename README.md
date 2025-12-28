@@ -79,9 +79,15 @@
    * Condition: TL:F, TR:F, BL:F, BR:F
    * Visual: Completely filled with grass (Center of a landmass).
    * Instruction: If (TL==F && TR==F && BL==F && BR==F) use Image ID: [6] 
- ✅ 1. there is no pooling so the amount of chunks in top left is stacks and after a while of playing it overloads and gets laggy. 
- ✅ 2. happy that the pixels are so clear but theres this weird bug. when i press the mouse left click it places and opposite for right clikc. but its not supose to. and there isnt this bug when i hold it and drag. so as long as my mosue dosent move it inverets the plce / hold
- ✅ 3. perlin noice for genration of chunks and chunk loading. the game goes aw snap after a while.
- ✅ 4. u forgot grid? grid has green shade for world grid grass locations. blue for chunks and red for tiles. white is very lightr and for visual grid which grass tiles rendered will line up to . make sure the ceaemra center. 
- ✅ 5. make sure the cameara scrolling in alt mode is centered. the stats on top left is FPS ,location and thats it. i will design a good frame for stuf will be designed with a border and filed area so u can load in a  type of thing called a border like kidna like the border of a inventory but it can be used everywhere. thast something for the future tho
+1. add grids, red for singular tiles, blue for chunks 8 by 8 tiles, thin white for visual grid and green shade for grass tiles.
+2. fix movement in wasd mode it looks laggy and unsmooth. smoothen it. normalize it too
+3. fix scrolling, its not centered. 
+4. add alt mode and fix scrolling in that too.
+5. add highlight for blocks that are being hovered over. and when mosue pressed go to image 1 when not image 0. for spriotesheet
+6. add a crossbar in the center of the screen4
+7. use my special cursor :D.
+8. i can see that the tiles are good tile the tile coding is correct but u need world genration because its just infinite goofy ahh tiles.
+9. it wen aw snap after a while.
+on top left corner show number of chunks rendered. if its not in render distance no need to render it just keep it in memory. dont load chunks that are not in render distance. and dont load after the game strats the world is built before the game even starts in the laoding screen and after the whole world is build then start it. we can just have 100 chunks rendered for niow and render distance is 5 chunks away from the player.
 
+all of these here arent implemetned currently
