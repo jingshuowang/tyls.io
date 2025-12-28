@@ -228,19 +228,22 @@
                         showGrid = !showGrid;
                     }
                     // Alt key for freelook toggle
+                    console.log('Key pressed:', e.key, 'Alt:', e.altKey, 'Freelook:', camera.freelook);
                     if (e.altKey && !camera.freelook) {
                         camera.freelook = true;
-                        console.log('FREELOOK ENABLED');
-                        document.getElementById('info').textContent = 'FREELOOK MODE';
+                        console.log('FREELOOK ENABLED - camera.freelook is now:', camera.freelook);
+                        document.getElementById('info').textContent = 'FREELOOK MODE - Release Alt to exit';
                         e.preventDefault();
                     }
                 });
 
                 window.addEventListener('keyup', (e) => {
                     keys[e.key.toLowerCase()] = false;
+                    console.log('Key released:', e.key, 'Alt:', e.altKey, 'Freelook:', camera.freelook);
                     // Exit freelook when Alt is released
                     if (!e.altKey && camera.freelook) {
                         camera.freelook = false;
+                        console.log('FREELOOK DISABLED');
                     }
                 });
 

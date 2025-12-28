@@ -91,4 +91,5 @@
 9. blocks are blurry
 10. unstable, half blocks apeear
 11. optimising, render can be cached but world grid and accual data can not like block palce ment and obliteration. and block loading, porbably the reason for half blocks. 
-12. to be continued
+12. the image for grass.png isnt on the white line
+13. to be continued
