@@ -145,7 +145,7 @@
             }
 
             // Camera
-            const camera = { x: 0, y: 0, zoom: 3, freelook: false };
+            const camera = { x: 0, y: 0, zoom: 1, freelook: false };
 
             // Player
             const player = { x: 0, y: 0, width: 16, height: 16, speed: 200 };
@@ -283,6 +283,7 @@
                 }
 
                 document.getElementById('info').textContent = 'Ready! Press G for grid, Alt for freelook';
+                console.log('World generation complete! Starting game loop...');
 
                 let lastTime = performance.now();
 
@@ -390,7 +391,7 @@
 
                     // Update stats with chunk count
                     const fps = Math.round(app.ticker.FPS);
-                    document.getElementById('info').textContent = `FPS: ${fps} | Location: ${Math.floor(player.x)}, ${Math.floor(player.y)} | Chunks: ${chunksRendered}`;
+                    document.getElementById('info').textContent = `FPS: ${fps} | Location: ${Math.floor(player.x)}, ${Math.floor(player.y)} | Zoom: ${camera.zoom.toFixed(1)}x | Chunks: ${chunksRendered}`;
                 }
 
                 // Render a single chunk
@@ -415,16 +416,23 @@
                             dirtSprite.height = TILE_SIZE;
                             container.addChild(dirtSprite);
 
-                            // Grass tile (on visual grid)
-                            const grassIdx = getGrassIdx(worldX, worldY);
-                            const grassTexture = getTileTexture(grassTex.baseTexture, grassIdx);
-                            const grassSprite = new PIXI.Sprite(grassTexture);
-                            grassSprite.x = (worldX + 0.5) * TILE_SIZE;
-                            grassSprite.y = (worldY + 0.5) * TILE_SIZE;
-                            grassSprite.anchor.set(0.5);
-                            grassSprite.width = TILE_SIZE;
-                            grassSprite.height = TILE_SIZE;
-                            container.addChild(grassSprite);
+                            // Grass tile (on visual grid) - only render if this tile or neighbors have grass
+                            const hasGrass = getTile(worldX, worldY) === 1 ||
+                                getTile(worldX + 1, worldY) === 1 ||
+                                getTile(worldX, worldY + 1) === 1 ||
+                                getTile(worldX + 1, worldY + 1) === 1;
+
+                            if (hasGrass) {
+                                const grassIdx = getGrassIdx(worldX, worldY);
+                                const grassTexture = getTileTexture(grassTex.baseTexture, grassIdx);
+                                const grassSprite = new PIXI.Sprite(grassTexture);
+                                grassSprite.x = (worldX + 0.5) * TILE_SIZE;
+                                grassSprite.y = (worldY + 0.5) * TILE_SIZE;
+                                grassSprite.anchor.set(0.5);
+                                grassSprite.width = TILE_SIZE;
+                                grassSprite.height = TILE_SIZE;
+                                container.addChild(grassSprite);
+                            }
                         }
                     }
 
