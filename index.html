@@ -22,13 +22,6 @@
             cursor: crosshair;
         }
 
-        #info {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            color: white;
-            font-family: monospace;
-        }
 
         #activity {
             position: absolute;
@@ -51,18 +44,7 @@
 </head>
 
 <body>
-    <div id="info">Loading...</div>
     <div id="activity"></div>
-    <div id="loadingBar"
-        style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 400px; display: none;">
-        <div style="background: #333; border: 2px solid #fff; border-radius: 10px; overflow: hidden;">
-            <div id="loadingProgress"
-                style="background: linear-gradient(90deg, #00ff00, #00aa00); height: 30px; width: 0%; transition: width 0.3s;">
-            </div>
-        </div>
-        <div id="loadingText" style="color: white; text-align: center; margin-top: 10px;">Loading...
-            0%</div>
-    </div>
     <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.5.2/dist/pixi.min.js"></script>
     <script>
         // Wait for PixiJS to load
@@ -112,16 +94,16 @@
             // Load textures
             const grassTex = PIXI.Texture.from('Assets/Image/Tile/grass.png');
             const dirtTex = PIXI.Texture.from('Assets/Image/Tile/dirt.png');
+            const frameTex = PIXI.Texture.from('Assets/Image/frame.png');
 
             // World container
             const world = new PIXI.Container();
             app.stage.addChild(world);
 
-            // Load highlight sprite (frame.png with 2 frames: 0 = normal, 1 = pressed)
-            const frameTex = PIXI.Texture.from('Assets/Image/frame.png');
+            // Highlight sprite (frame.png with 2 frames: 0 = normal, 1 = pressed)
             const highlightSprite = new PIXI.Sprite(frameTex);
             highlightSprite.visible = false; // Hidden by default
-            app.stage.addChild(highlightSprite);
+            world.addChild(highlightSprite); // Add to world so it transforms with camera
 
             // Track hovered tile
             let hoveredTileX = null;

@@ -4,7 +4,7 @@
   "minZoom": 0.25,
   "maxZoom": 50,
   "chunkSize": 16,
-  "renderDistance": 500,
+  "renderDistance": 30,
   "lodThreshold": 0.8,
   "notes": ""
 }
