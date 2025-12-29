@@ -53,7 +53,6 @@
 <body>
     <div id="info">Loading...</div>
     <div id="activity"></div>
-    <div id="info">Loading...</div>
     <script src="https://unpkg.com/pixi.js@8.x/dist/pixi.min.js"></script>
     <script>
         // Wait for PixiJS to load
@@ -235,9 +234,43 @@
 
                 app.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
+                // Mouse drag for freelook panning
+                let isDragging = false;
+                let dragStartX = 0;
+                let dragStartY = 0;
+                let cameraStartX = 0;
+                let cameraStartY = 0;
+
+                app.canvas.addEventListener('mousedown', (e) => {
+                    if (isAltPressed && e.button === 0) {
+                        isDragging = true;
+                        dragStartX = e.clientX;
+                        dragStartY = e.clientY;
+                        cameraStartX = camera.x;
+                        cameraStartY = camera.y;
+                        app.canvas.style.cursor = 'grabbing';
+                    }
+                }, true); // Use capture to run before other handlers
+
+                app.canvas.addEventListener('mousemove', (e) => {
+                    if (isDragging && isAltPressed) {
+                        const dx = (e.clientX - dragStartX) / camera.zoom;
+                        const dy = (e.clientY - dragStartY) / camera.zoom;
+                        camera.x = cameraStartX - dx;
+                        camera.y = cameraStartY - dy;
+                    }
+                });
+
+                app.canvas.addEventListener('mouseup', () => {
+                    if (isDragging) {
+                        isDragging = false;
+                        app.canvas.style.cursor = isAltPressed ? 'grab' : 'crosshair';
+                    }
+                });
+
                 // Exponential zoom - ONLY in freelook mode
                 app.canvas.addEventListener('wheel', (e) => {
-                    if (!camera.freelook) return; // Only zoom in Alt mode
+                    if (!isAltPressed) return; // Only zoom when Alt is pressed
                     e.preventDefault();
                     const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9; // 10% change per scroll
                     camera.zoom = Math.max(config.minZoom, Math.min(config.maxZoom, camera.zoom * zoomFactor));
@@ -246,6 +279,7 @@
                 // Keyboard
                 const keys = {};
                 let showGrid = false;
+                let isAltPressed = false; // Track Alt key for freelook
 
                 // Activity indicator - track currently pressed keys
                 let pressedKeys = new Set();
@@ -267,6 +301,24 @@
                 window.addEventListener('keydown', (e) => {
                     keys[e.key.toLowerCase()] = true;
 
+                    // Toggle Alt mode (press Alt to toggle on/off)
+                    if (e.key === 'Alt' && !e.repeat) {
+                        isAltPressed = !isAltPressed;
+                        camera.freelook = isAltPressed;
+
+                        if (isAltPressed) {
+                            // Entering freelook
+                            app.canvas.style.cursor = 'grab';
+                            document.getElementById('info').textContent = 'FREELOOK MODE - Drag to pan, Scroll to zoom, Alt to exit';
+                        } else {
+                            // Exiting freelook - snap camera back to player
+                            camera.x = player.x + player.width / 2;
+                            camera.y = player.y + player.height / 2;
+                            app.canvas.style.cursor = 'crosshair';
+                        }
+                        e.preventDefault();
+                    }
+
                     // Add key to pressed set
                     let keyName = e.key;
                     if (keyName === ' ') keyName = 'Space';
@@ -276,13 +328,6 @@
 
                     if (e.key.toLowerCase() === 'g') {
                         showGrid = !showGrid;
-                    }
-                    // Alt key for freelook toggle
-                    if (e.altKey && !camera.freelook) {
-                        camera.freelook = true;
-                        console.log('FREELOOK ENABLED - camera.freelook is now:', camera.freelook);
-                        document.getElementById('info').textContent = 'FREELOOK MODE - Scroll to zoom, WASD to pan';
-                        e.preventDefault();
                     }
                 });
 
@@ -295,13 +340,6 @@
                     if (keyName.length === 1) keyName = keyName.toUpperCase();
                     pressedKeys.delete(keyName);
                     updateActivity();
-
-                    console.log('Key released:', e.key, 'Alt:', e.altKey, 'Freelook:', camera.freelook);
-                    // Exit freelook when Alt is released
-                    if (!e.altKey && camera.freelook) {
-                        camera.freelook = false;
-                        console.log('FREELOOK DISABLED');
-                    }
                 });
 
                 // Grass tile mapping (from README)
@@ -436,17 +474,15 @@
                             moveY *= 0.707;
                         }
 
-                        // Smooth movement (no rounding for smooth interpolation)
-                        player.x += moveX * player.speed * dt;
-                        player.y += moveY * player.speed * dt;
-
-                        // Camera follow or freelook movement
-                        if (camera.freelook) {
-                            // In freelook, WASD moves camera directly
+                        // Movement logic - different for freelook vs normal
+                        if (isAltPressed) {
+                            // Freelook: WASD moves camera only, player stays in place
                             camera.x += moveX * player.speed * dt;
                             camera.y += moveY * player.speed * dt;
                         } else {
-                            // Normal mode: camera follows player (player centered on screen)
+                            // Normal mode: WASD moves player, camera follows
+                            player.x += moveX * player.speed * dt;
+                            player.y += moveY * player.speed * dt;
                             camera.x = player.x + player.width / 2;
                             camera.y = player.y + player.height / 2;
                         }
@@ -457,7 +493,7 @@
 
                         // Handle input (left=break/dirt, right=place/grass)
                         // Only allow building in normal mode, not in freelook
-                        if ((mouse.left || mouse.right) && !camera.freelook) {
+                        if ((mouse.left || mouse.right) && !isAltPressed) {
                             const worldX = Math.floor((mouse.x - world.x) / camera.zoom / TILE_SIZE);
                             const worldY = Math.floor((mouse.y - world.y) / camera.zoom / TILE_SIZE);
                             setTile(worldX, worldY, mouse.right ? 1 : 0);

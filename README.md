@@ -93,4 +93,5 @@
 10. unstable, half blocks apeear
 11. optimising, render can be cached but world grid and accual data can not like block palce ment and obliteration. and block loading, porbably the reason for half blocks. 
 12. the image for grass.png isnt on the white line
-13. to be continued
+13. add pixel.ttf font to activity indicator and other UI elements
+14. to be continued
