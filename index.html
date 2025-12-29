@@ -278,10 +278,10 @@
                         showGrid = !showGrid;
                     }
                     // Alt key for freelook toggle
-                    console.log('Key pressed:', e.key, 'Alt:', e.altKey, 'Freelook:', camera.freelook);
                     if (e.altKey && !camera.freelook) {
                         camera.freelook = true;
                         console.log('FREELOOK ENABLED - camera.freelook is now:', camera.freelook);
+                        document.getElementById('info').textContent = 'FREELOOK MODE - Scroll to zoom, WASD to pan';
                         e.preventDefault();
                     }
                 });
