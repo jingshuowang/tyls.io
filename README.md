@@ -80,8 +80,8 @@
    * Visual: Completely filled with grass (Center of a landmass).
    * Instruction: If (TL==F && TR==F && BL==F && BR==F) use Image ID: [6] 
 
-✅ 1. add alt mode and fix scrolling in that too. like dragging stuff around.
-✅ 2. add highlight for blocks that are being hovered over. and when mosue pressed go to image 1 when not image 0. for spriotesheet
+ 1. add alt mode and fix scrolling in that too. like dragging stuff around.
+ 2. add highlight for blocks that are being hovered over. and when mosue pressed go to image 1 when not image 0. for spriotesheet
 3. add a crossbar in the center of the screen4
 4. use my special cursor :D.
 5. it wen aw snap after a while.

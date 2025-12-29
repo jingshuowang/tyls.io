@@ -4,6 +4,11 @@
 <head>
     <title>tyls.io</title>
     <style>
+        @font-face {
+            font-family: 'Minecraft';
+            src: url('../Assets/Font/Minecraft.ttf') format('truetype');
+        }
+
         body {
             margin: 0;
             overflow: hidden;
@@ -24,10 +29,30 @@
             color: white;
             font-family: monospace;
         }
+
+        #activity {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: #00ff00;
+            font-family: 'Minecraft', monospace;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #00ff00;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+
+        #activity.flash {
+            opacity: 1;
+        }
     </style>
 </head>
 
 <body>
+    <div id="info">Loading...</div>
+    <div id="activity"></div>
     <div id="info">Loading...</div>
     <script src="https://unpkg.com/pixi.js@8.x/dist/pixi.min.js"></script>
     <script>
@@ -222,8 +247,22 @@
                 const keys = {};
                 let showGrid = false;
 
+                // Activity indicator flash function
+                function flashActivity(text) {
+                    const activity = document.getElementById('activity');
+                    activity.textContent = text;
+                    activity.classList.add('flash');
+                    setTimeout(() => {
+                        activity.classList.remove('flash');
+                    }, 1000); // Fade out after 1 second
+                }
+
                 window.addEventListener('keydown', (e) => {
                     keys[e.key.toLowerCase()] = true;
+
+                    // Flash key press
+                    flashActivity(`Key: ${e.key} ${e.altKey ? '+ ALT' : ''} ${e.shiftKey ? '+ SHIFT' : ''} ${e.ctrlKey ? '+ CTRL' : ''}`);
+
                     if (e.key.toLowerCase() === 'g') {
                         showGrid = !showGrid;
                     }
@@ -232,6 +271,7 @@
                     if (e.altKey && !camera.freelook) {
                         camera.freelook = true;
                         console.log('FREELOOK ENABLED - camera.freelook is now:', camera.freelook);
+                        flashActivity('FREELOOK MODE ENABLED');
                         document.getElementById('info').textContent = 'FREELOOK MODE - Release Alt to exit';
                         e.preventDefault();
                     }
