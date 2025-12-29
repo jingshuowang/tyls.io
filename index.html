@@ -60,8 +60,7 @@
                 style="background: linear-gradient(90deg, #00ff00, #00aa00); height: 30px; width: 0%; transition: width 0.3s;">
             </div>
         </div>
-        <div id="loadingText"
-            style="color: white; text-align: center; margin-top: 10px; font-family: 'Minecraft', monospace;">Loading...
+        <div id="loadingText" style="color: white; text-align: center; margin-top: 10px;">Loading...
             0%</div>
     </div>
     <script src="pixi.min.js"></script>
@@ -472,7 +471,7 @@
                     document.getElementById('info').textContent = 'Generating world...';
 
                     // Pre-generate chunks around spawn to prevent lag spikes
-                    const pregenRadius = config.renderDistance + 2; // Generate extra chunks
+                    const pregenRadius = config.renderDistance + 5; // Generate extra chunks
                     let chunksGenerated = 0;
                     const totalChunks = (pregenRadius * 2 + 1) * (pregenRadius * 2 + 1);
 
