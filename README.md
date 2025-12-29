@@ -85,7 +85,7 @@
  2. add highlight for blocks that are being hovered over. and when mosue pressed go to image 1 when not image 0. for spriotesheet
 3. add a crossbar in the center of the screen4
 4. use my special cursor :D.
-5. it wen aw snap after a while.
+5. block not allighned to white grid ;-;
 6. later unlaoded chunks will be fog and would be loaded when player gets close to it. unlaoded ones arew kept in worldfil, just not rendered.
 7. enchance block placement/obliteration. it isnt connected now and iosnt smooth. it should be reallu smooth like last timne when we smoothened it it connects the 2 points that are loaded if it detects a part not loaded. so it should not be separated like more conneted and firm. same for destroying. 
 8. grid have rendering issues. unstable.
@@ -94,10 +94,9 @@
 11. optimising, render can be cached but world grid and accual data can not like block palce ment and obliteration. and block loading, porbably the reason for half blocks. 
 12. the image for grass.png isnt on the white line
 13. add pixel.ttf font to activity indicator and other UI elements
-14. ✅ Alt mode working (toggle with Alt key, mouse drag to pan, scroll to zoom)
-15. breaking blocks causes severe lag
-16. grid rendering causes lag
-17. white grid lines ONLY render in Alt mode, not in normal mode
-18. render center not centered at 0.25x zoom (offset issue)
-19. chunks not loading outside boundaries in Alt mode (black areas when panning) - game loop issue
-20. to be continued
+14. breaking blocks causes severe lag
+15. grid rendering causes aw snap lag
+16. white grid lines not rendering at all
+17. render center not centered at 0.25x zoom (offset issue)
+18. chunks not rendering in Alt mode freelook (black areas when panning)
+19. add heights (terrain elevation/depth)

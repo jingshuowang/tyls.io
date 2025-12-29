@@ -117,6 +117,15 @@
             const world = new PIXI.Container();
             app.stage.addChild(world);
 
+            // Load highlight sprite (frame.png with 2 frames: 0 = normal, 1 = pressed)
+            const frameTex = PIXI.Texture.from('Assets/Image/frame.png');
+            const highlightSprite = new PIXI.Sprite(frameTex);
+            highlightSprite.visible = false; // Hidden by default
+            app.stage.addChild(highlightSprite);
+
+            // Track hovered tile
+            let hoveredTileX = null;
+            let hoveredTileY = null;
 
 
 
@@ -232,7 +241,7 @@
                     // Config loaded silently
                 })
                 .catch(() => {
-                    console.log('No config.json found, using defaults');
+                    // Using default config silently
                 })
                 .finally(() => {
                     initGame();
@@ -251,6 +260,20 @@
                 app.canvas.addEventListener('mousemove', (e) => {
                     mouse.x = e.clientX;
                     mouse.y = e.clientY;
+
+                    // Convert screen coords to world coords
+                    const worldX = (mouse.x - app.screen.width / 2) / camera.zoom + camera.x;
+                    const worldY = (mouse.y - app.screen.height / 2) / camera.zoom + camera.y;
+
+                    // Calculate which tile is being hovered
+                    hoveredTileX = Math.floor(worldX / TILE_SIZE);
+                    hoveredTileY = Math.floor(worldY / TILE_SIZE);
+
+                    // Position highlight sprite and set frame (0 = normal, 1 = pressed)
+                    highlightSprite.x = hoveredTileX * TILE_SIZE;
+                    highlightSprite.y = hoveredTileY * TILE_SIZE;
+                    highlightSprite.texture.frame = mouse.left ? 1 : 0; // Frame 1 when pressed, 0 otherwise
+                    highlightSprite.visible = true;
                 });
 
                 app.canvas.addEventListener('mousedown', (e) => {
@@ -258,12 +281,29 @@
                     mouse.y = e.clientY;
                     if (e.button === 0) mouse.left = true;
                     if (e.button === 2) mouse.right = true;
+
+                    // Update highlight sprite to show pressed state (frame 1)
+                    const worldX = (mouse.x - app.screen.width / 2) / camera.zoom + camera.x;
+                    const worldY = (mouse.y - app.screen.height / 2) / camera.zoom + camera.y;
+                    hoveredTileX = Math.floor(worldX / TILE_SIZE);
+                    hoveredTileY = Math.floor(worldY / TILE_SIZE);
+
+                    highlightSprite.x = hoveredTileX * TILE_SIZE;
+                    highlightSprite.y = hoveredTileY * TILE_SIZE;
+                    highlightSprite.texture.frame = 1; // Frame 1 for pressed state
+                    highlightSprite.visible = true;
+
                     e.preventDefault();
                 });
 
                 app.canvas.addEventListener('mouseup', (e) => {
                     if (e.button === 0) mouse.left = false;
                     if (e.button === 2) mouse.right = false;
+
+                    // Update highlight sprite to show normal state (frame 0)
+                    if (hoveredTileX !== null && hoveredTileY !== null) {
+                        highlightSprite.texture.frame = 0; // Frame 0 for normal state
+                    }
                 });
 
                 app.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
