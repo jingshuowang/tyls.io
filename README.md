@@ -80,7 +80,7 @@
    * Visual: Completely filled with grass (Center of a landmass).
    * Instruction: If (TL==F && TR==F && BL==F && BR==F) use Image ID: [6] 
 
- 1. add alt mode and fix scrolling in that too. like dragging stuff around.
+ 1. ✅ add alt mode and fix scrolling in that too. like dragging stuff around.
  1extra: lets fix the tiles. the tiles for grass should load in white grid, wait WHERE IS THE WHITE VISUAL GRID, ADD THE THIN WHITE GRID BACK. ok yeah thats it for 1extra.
  2. add highlight for blocks that are being hovered over. and when mosue pressed go to image 1 when not image 0. for spriotesheet
 3. add a crossbar in the center of the screen4
@@ -94,4 +94,10 @@
 11. optimising, render can be cached but world grid and accual data can not like block palce ment and obliteration. and block loading, porbably the reason for half blocks. 
 12. the image for grass.png isnt on the white line
 13. add pixel.ttf font to activity indicator and other UI elements
-14. to be continued
+14. ✅ Alt mode working (toggle with Alt key, mouse drag to pan, scroll to zoom)
+15. breaking blocks causes severe lag
+16. grid rendering causes lag
+17. white grid lines ONLY render in Alt mode, not in normal mode
+18. render center not centered at 0.25x zoom (offset issue)
+19. chunks not loading outside boundaries in Alt mode (black areas when panning) - game loop issue
+20. to be continued

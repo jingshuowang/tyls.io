@@ -229,7 +229,7 @@
                 .then(res => res.json())
                 .then(data => {
                     config = { ...config, ...data };
-                    console.log('Config loaded:', config);
+                    // Config loaded silently
                 })
                 .catch(() => {
                     console.log('No config.json found, using defaults');
