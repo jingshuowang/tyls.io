@@ -204,14 +204,28 @@
                 return Math.abs(hash) % 16; // Random dirt tile 0-15
             }
 
+            const globalTextureCache = new Map();
+
             function getTileTexture(sourceTexture, idx) {
+                if (!globalTextureCache.has(sourceTexture)) {
+                    globalTextureCache.set(sourceTexture, {});
+                }
+                const cache = globalTextureCache.get(sourceTexture);
+
+                if (cache[idx]) {
+                    return cache[idx];
+                }
+
                 const col = idx % 4;
                 const row = Math.floor(idx / 4);
                 // In PixiJS v8, create texture from source with frame rectangle
-                return new PIXI.Texture({
+                const tex = new PIXI.Texture({
                     source: sourceTexture.source,
                     frame: new PIXI.Rectangle(col * 16, row * 16, 16, 16)
                 });
+
+                cache[idx] = tex;
+                return tex;
             }
 
             // Load config from tweaker (config.json) and initialize game
@@ -739,13 +753,23 @@
                         }
 
                         // Render new chunks (only if not already rendered)
-                        let chunksRendered = 0;
+                        // Time Slicing: Limit creation to prevent lag spikes
+                        const MAX_CHUNKS_PER_FRAME = 4;
+                        let chunksCreated = 0;
+
+                        // Sort keys by distance from center so we load nearest first? 
+                        // For now just loop. The set iteration order is insertion order usually.
+
                         for (const key of chunksToRender) {
                             if (!chunkContainers.has(key)) {
-                                const [cx, cy] = key.split(',').map(Number);
-                                renderChunk(cx, cy);
+                                if (chunksCreated < MAX_CHUNKS_PER_FRAME) {
+                                    const [cx, cy] = key.split(',').map(Number);
+                                    renderChunk(cx, cy);
+                                    chunksCreated++;
+                                }
+                                // If we hit limit, we just stop creating for this frame. 
+                                // They will be picked up next frame.
                             }
-                            chunksRendered++;
                         }
 
                         // Update stats with chunk count
