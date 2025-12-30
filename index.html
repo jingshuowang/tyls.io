@@ -22,6 +22,17 @@
             cursor: crosshair;
         }
 
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #ffffff;
+            font-family: 'Minecraft', monospace;
+            font-size: 16px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+            pointer-events: none;
+            z-index: 100;
+        }
 
         #activity {
             position: absolute;
@@ -79,6 +90,13 @@
                 roundPixels: true  // Pixel-perfect rendering
             });
             document.body.appendChild(app.canvas);
+
+            // Resize canvas to fill screen (fixes black bar at top)
+            function resizeCanvas() {
+                app.renderer.resize(window.innerWidth, window.innerHeight);
+            }
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas(); // Call once to ensure proper size
 
             // Pixel-perfect (v8 compatible)
             app.ticker.maxFPS = 64;
@@ -546,7 +564,10 @@
                         const locX = player ? Math.floor(player.x) : 0;
                         const locY = player ? Math.floor(player.y) : 0;
                         const zoom = camera ? camera.zoom.toFixed(2) : '0.00';
-                        document.getElementById('info').textContent = `FPS: ${fps} | Location: ${locX}, ${locY} | Zoom: ${zoom}x`;
+                        const infoElement = document.getElementById('info');
+                        if (infoElement) {
+                            infoElement.textContent = `FPS: ${fps} | Location: ${locX}, ${locY} | Zoom: ${zoom}x`;
+                        }
 
                         // Handle input (left=break/dirt, right=place/grass)
                         // Only allow building in normal mode, not in freelook
