@@ -499,7 +499,7 @@
                     });
                     const selectTexPressed = new PIXI.Texture({
                         source: selectTex.source,
-                        frame: new PIXI.Rectangle(TILE_SIZE, 0, TILE_SIZE, TILE_SIZE)
+                        frame: new PIXI.Rectangle(0, TILE_SIZE, TILE_SIZE, TILE_SIZE)
                     });
 
                     const selectSprite = new PIXI.Sprite(selectTexNormal);
@@ -706,13 +706,25 @@
                         const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
                         const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
 
-                        // Dynamic render distance based on zoom (more zoom = less chunks needed)
-                        const renderDistance = Math.min(config.renderDistance, Math.ceil(config.renderDistance / Math.max(camera.zoom, 0.1)));
+                        // Calculate visible bounds based on viewport
+                        const viewHalfW = (app.screen.width / camera.zoom) / 2;
+                        const viewHalfH = (app.screen.height / camera.zoom) / 2;
+
+                        // Convert to chunk coordinates with buffer
+                        const buffer = 2; // Extra chunks around view to prevent popping
+
+                        // We strictly calculate what is ON SCREEN. 
+                        // The user's renderDistance (81) is huge, so we cannot use it for rendering Sprites.
+
+                        const startChunkX = Math.floor((camera.x - viewHalfW) / (TILE_SIZE * CHUNK_SIZE)) - buffer;
+                        const endChunkX = Math.ceil((camera.x + viewHalfW) / (TILE_SIZE * CHUNK_SIZE)) + buffer;
+                        const startChunkY = Math.floor((camera.y - viewHalfH) / (TILE_SIZE * CHUNK_SIZE)) - buffer;
+                        const endChunkY = Math.ceil((camera.y + viewHalfH) / (TILE_SIZE * CHUNK_SIZE)) + buffer;
 
                         // Determine which chunks should be visible
                         const chunksToRender = new Set();
-                        for (let cy = playerChunkY - renderDistance; cy <= playerChunkY + renderDistance; cy++) {
-                            for (let cx = playerChunkX - renderDistance; cx <= playerChunkX + renderDistance; cx++) {
+                        for (let cy = startChunkY; cy <= endChunkY; cy++) {
+                            for (let cx = startChunkX; cx <= endChunkX; cx++) {
                                 chunksToRender.add(`${cx},${cy}`);
                             }
                         }
@@ -796,11 +808,12 @@
                                     const grassIdx = getGrassIdx(worldX, worldY);
                                     const grassTexture = getTileTexture(grassTex, grassIdx);
                                     const grassSprite = new PIXI.Sprite(grassTexture);
-                                    // Dual Grid: Visual tile centered on intersection (worldX+1, worldY+1)
-                                    // With anchor(0.5), edges align with visual grid (offset 0.5)
-                                    grassSprite.x = (worldX + 1) * TILE_SIZE;
-                                    grassSprite.y = (worldY + 1) * TILE_SIZE;
-                                    grassSprite.anchor.set(0.5);
+                                    // Dual Grid: Visual tile top-left at (worldX + 0.5, worldY + 0.5)
+                                    // This aligns the 16x16 tile with the "Visual Grid" (White Grid) cells
+                                    grassSprite.x = (worldX + 0.5) * TILE_SIZE;
+                                    grassSprite.y = (worldY + 0.5) * TILE_SIZE;
+                                    // Default anchor is (0,0), so it draws from top-left
+
                                     grassSprite.width = TILE_SIZE;
                                     grassSprite.height = TILE_SIZE;
                                     container.addChild(grassSprite);
@@ -837,7 +850,7 @@
                         overlayGraphics = new PIXI.Graphics();
 
                         // 4. White visual grid (aligned with world grid) - ALWAYS RENDER
-                        overlayGraphics.lineStyle(1, 0xffffff, 0.5); // Thicker lines for visibility
+                        overlayGraphics.lineStyle(0.5, 0xffffff, 0.2);
 
                         // Calculate visible area for grid
                         const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
