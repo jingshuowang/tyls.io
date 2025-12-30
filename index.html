@@ -730,6 +730,70 @@
                     // Render function - chunk-based with caching
                     let lastLODState = camera.zoom < config.lodThreshold;
 
+                    // Chunk Rendering Function (Moved to initGame scope)
+                    function renderChunk(cx, cy) {
+                        const key = `${cx},${cy}`;
+                        const chunk = getChunk(cx, cy);
+                        const container = new PIXI.Container();
+
+                        // LOD: If zoomed out below threshold, render as solid color rectangles
+                        if (camera.zoom < config.lodThreshold) {
+                            // LOD Optimization: Draw one single rectangle for the whole chunk
+                            const graphics = new PIXI.Graphics();
+                            graphics.beginFill(avgGrassColor);
+                            graphics.drawRect(cx * CHUNK_SIZE * TILE_SIZE, cy * CHUNK_SIZE * TILE_SIZE, CHUNK_SIZE * TILE_SIZE, CHUNK_SIZE * TILE_SIZE);
+                            graphics.endFill();
+                            container.addChild(graphics);
+                            chunkContainers.set(key, container);
+                            container.zIndex = 0;
+                            world.addChild(container);
+                            world.sortChildren();
+                            return;
+                        }
+
+                        // Render all tiles in this chunk
+                        for (let ty = 0; ty < CHUNK_SIZE; ty++) {
+                            for (let tx = 0; tx < CHUNK_SIZE; tx++) {
+                                const worldX = cx * CHUNK_SIZE + tx;
+                                const worldY = cy * CHUNK_SIZE + ty;
+
+                                // Dirt tile
+                                const dirtIdx = getDirtIdx(worldX, worldY);
+                                const dirtTexture = getTileTexture(dirtTex, dirtIdx);
+                                const dirtSprite = new PIXI.Sprite(dirtTexture);
+                                dirtSprite.x = worldX * TILE_SIZE;
+                                dirtSprite.y = worldY * TILE_SIZE;
+                                dirtSprite.width = TILE_SIZE;
+                                dirtSprite.height = TILE_SIZE;
+                                container.addChild(dirtSprite);
+
+                                // Grass tile
+                                const hasGrass = getTile(worldX, worldY) === 1 ||
+                                    getTile(worldX + 1, worldY) === 1 ||
+                                    getTile(worldX, worldY + 1) === 1 ||
+                                    getTile(worldX + 1, worldY + 1) === 1;
+
+                                if (hasGrass) {
+                                    const grassIdx = getGrassIdx(worldX, worldY);
+                                    const grassTexture = getTileTexture(grassTex, grassIdx);
+                                    const grassSprite = new PIXI.Sprite(grassTexture);
+                                    // Aligned to White Grid (Dual Grid)
+                                    grassSprite.x = (worldX + 0.5) * TILE_SIZE;
+                                    grassSprite.y = (worldY + 0.5) * TILE_SIZE;
+
+                                    grassSprite.width = TILE_SIZE;
+                                    grassSprite.height = TILE_SIZE;
+                                    container.addChild(grassSprite);
+                                }
+                            }
+                        }
+
+                        chunkContainers.set(key, container);
+                        container.zIndex = 0;
+                        world.addChild(container);
+                        world.sortChildren();
+                    }
+
                     function render() {
                         // Check if we crossed LOD threshold
                         const currentLODState = camera.zoom < config.lodThreshold;
@@ -802,72 +866,6 @@
                         const fps = Math.round(app.ticker.FPS);
                         const texInfo = `G:${grassTex?.width}x${grassTex?.height} D:${dirtTex?.width}x${dirtTex?.height}`;
                         document.getElementById('info').textContent = `FPS: ${fps} | Loc: ${Math.floor(player.x)},${Math.floor(player.y)} | Zoom: ${camera.zoom.toFixed(2)}x | Chunks: ${chunksRendered} | ${texInfo}`;
-                    }
-                    // Render a single chunk
-                    function renderChunk(cx, cy) {
-                        const key = `${cx},${cy}`;
-                        const chunk = getChunk(cx, cy);
-                        const container = new PIXI.Container();
-
-                        // LOD: If zoomed out below threshold, render as solid color rectangles
-                        if (camera.zoom < config.lodThreshold) {
-                            // LOD Optimization: Draw one single rectangle for the whole chunk
-                            // to drastically reduce draw calls when zoomed out
-                            const graphics = new PIXI.Graphics();
-                            graphics.beginFill(avgGrassColor); // Use average grass color for the block
-                            graphics.drawRect(cx * CHUNK_SIZE * TILE_SIZE, cy * CHUNK_SIZE * TILE_SIZE, CHUNK_SIZE * TILE_SIZE, CHUNK_SIZE * TILE_SIZE);
-                            graphics.endFill();
-                            container.addChild(graphics);
-                            chunkContainers.set(key, container);
-                            container.zIndex = 0;
-                            world.addChild(container);
-                            world.sortChildren();
-                            return;
-                        }
-
-                        // Render all tiles in this chunk
-                        for (let ty = 0; ty < CHUNK_SIZE; ty++) {
-                            for (let tx = 0; tx < CHUNK_SIZE; tx++) {
-                                const worldX = cx * CHUNK_SIZE + tx;
-                                const worldY = cy * CHUNK_SIZE + ty;
-
-                                // Dirt tile
-                                const dirtIdx = getDirtIdx(worldX, worldY);
-                                const dirtTexture = getTileTexture(dirtTex, dirtIdx);
-                                const dirtSprite = new PIXI.Sprite(dirtTexture);
-                                dirtSprite.x = worldX * TILE_SIZE;
-                                dirtSprite.y = worldY * TILE_SIZE;
-                                dirtSprite.width = TILE_SIZE;
-                                dirtSprite.height = TILE_SIZE;
-                                container.addChild(dirtSprite);
-
-                                // Grass tile (on visual grid) - only render if this tile or neighbors have grass
-                                const hasGrass = getTile(worldX, worldY) === 1 ||
-                                    getTile(worldX + 1, worldY) === 1 ||
-                                    getTile(worldX, worldY + 1) === 1 ||
-                                    getTile(worldX + 1, worldY + 1) === 1;
-
-                                if (hasGrass) {
-                                    const grassIdx = getGrassIdx(worldX, worldY);
-                                    const grassTexture = getTileTexture(grassTex, grassIdx);
-                                    const grassSprite = new PIXI.Sprite(grassTexture);
-                                    // Dual Grid: Visual tile top-left at (worldX + 0.5, worldY + 0.5)
-                                    // This aligns the 16x16 tile with the "Visual Grid" (White Grid) cells
-                                    grassSprite.x = worldX * TILE_SIZE;
-                                    grassSprite.y = worldY * TILE_SIZE;
-                                    // Default anchor is (0,0), so it draws from top-left
-
-                                    grassSprite.width = TILE_SIZE;
-                                    grassSprite.height = TILE_SIZE;
-                                    container.addChild(grassSprite);
-                                }
-                            }
-                        }
-
-                        chunkContainers.set(key, container);
-                        container.zIndex = 0; // Explicitly set chunk z-index (bottom)
-                        world.addChild(container);
-                        world.sortChildren(); // Force sort to ensure layering 
                     }
 
                     // Render overlays (grid, highlights, etc) - called after chunk rendering
