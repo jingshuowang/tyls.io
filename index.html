@@ -509,7 +509,6 @@
                     const avgDirtColor = getAverageColor(dirtTex);
                     const avgGrassColor = getAverageColor(grassTex);
 
-                    document.getElementById('info').textContent = 'Generating world...';
 
                     // Pre-generate chunks around spawn to prevent lag spikes
                     const pregenRadius = config.renderDistance + 5; // Generate extra chunks

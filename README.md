@@ -106,4 +106,4 @@
     - Inside blurred, corners don't change size
     - Perfect for inventory/settings UI
     - Game style: blur + lighting + pixels + shaders = unique!
-21. to be continued
+21. to be continued delete unnessisary stuf in code code celan. take 01 minutes make stuf tidy and great.
