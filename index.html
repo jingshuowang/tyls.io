@@ -110,19 +110,10 @@
             const world = new PIXI.Container();
             app.stage.addChild(world);
 
-            // Layer structure (bottom to top): blocks -> select -> grid -> cursor
-            const blocksLayer = new PIXI.Container();
-            const selectLayer = new PIXI.Container();
-            const gridLayer = new PIXI.Container();
-
-            world.addChild(blocksLayer);  // Layer 1: Blocks (tiles)
-            world.addChild(selectLayer);  // Layer 2: Select highlight
-            world.addChild(gridLayer);    // Layer 3: Grid
-
             // Highlight sprite (select.png shows on hovered block)
             const selectSprite = new PIXI.Sprite(selectTex);
-            selectSprite.visible = false; // Hidden by default
-            selectLayer.addChild(selectSprite); // Add to select layer
+            selectSprite.visible = false;
+            world.addChild(selectSprite);
 
             // Track hovered tile
             let hoveredTileX = null;
@@ -270,11 +261,11 @@
                     hoveredTileX = Math.floor(worldX / TILE_SIZE);
                     hoveredTileY = Math.floor(worldY / TILE_SIZE);
 
-                    // Position highlight sprite and set frame (0 = normal, 1 = pressed)
-                    highlightSprite.x = hoveredTileX * TILE_SIZE;
-                    highlightSprite.y = hoveredTileY * TILE_SIZE;
-                    highlightSprite.texture.frame = mouse.left ? 1 : 0; // Frame 1 when pressed, 0 otherwise
-                    highlightSprite.visible = true;
+                    // Position select sprite and set frame (0 = normal, 1 = pressed)
+                    selectSprite.x = hoveredTileX * TILE_SIZE;
+                    selectSprite.y = hoveredTileY * TILE_SIZE;
+                    selectSprite.texture.frame = mouse.left ? 1 : 0; // Frame 1 when pressed, 0 otherwise
+                    selectSprite.visible = true;
                 });
 
                 app.canvas.addEventListener('mousedown', (e) => {
@@ -289,10 +280,10 @@
                     hoveredTileX = Math.floor(worldX / TILE_SIZE);
                     hoveredTileY = Math.floor(worldY / TILE_SIZE);
 
-                    highlightSprite.x = hoveredTileX * TILE_SIZE;
-                    highlightSprite.y = hoveredTileY * TILE_SIZE;
-                    highlightSprite.texture.frame = 1; // Frame 1 for pressed state
-                    highlightSprite.visible = true;
+                    selectSprite.x = hoveredTileX * TILE_SIZE;
+                    selectSprite.y = hoveredTileY * TILE_SIZE;
+                    selectSprite.texture.frame = 1; // Frame 1 for pressed state
+                    selectSprite.visible = true;
 
                     e.preventDefault();
                 });
@@ -303,7 +294,7 @@
 
                     // Update highlight sprite to show normal state (frame 0)
                     if (hoveredTileX !== null && hoveredTileY !== null) {
-                        highlightSprite.texture.frame = 0; // Frame 0 for normal state
+                        selectSprite.texture.frame = 0; // Frame 0 for normal state
                     }
                 });
 
