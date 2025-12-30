@@ -101,9 +101,9 @@
 18. chunks not rendering in Alt mode freelook (black areas when panning)
 19. add heights (terrain elevation/depth)
 20. add special frame system for UI (inventory, settings, etc)
-    - Command: /rectangle [length] [height] [location] creates bordered frame
+    - Command: /ui [length] [height] [location] creates bordered frame
     - frame.png spritesheet with corners (pixelated) and sides (horizontal/vertical)
     - Inside blurred, corners don't change size
-    - Perfect for inventory/settings UI
+    - Perfect for inventory/settings UI laoding bar and more 
     - Game style: blur + lighting + pixels + shaders = unique!
 21. to be continued delete unnessisary stuf in code code celan. take 01 minutes make stuf tidy and great.

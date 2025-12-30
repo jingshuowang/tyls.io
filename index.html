@@ -59,25 +59,6 @@
     <script>
         // Wait for PixiJS to load
         window.addEventListener('load', async () => {
-            // Show loading bar
-            document.getElementById('loadingBar').style.display = 'block';
-
-            function updateProgress(percent, text) {
-                document.getElementById('loadingProgress').style.width = percent + '%';
-                document.getElementById('loadingText').textContent = text || `Loading... ${percent}%`;
-            }
-
-            function showError(errorText) {
-                document.getElementById('loadingProgress').style.background = 'linear-gradient(90deg, #ff0000, #aa0000)';
-                document.getElementById('loadingText').style.color = '#ff0000';
-                document.getElementById('loadingText').textContent = '❌ ERROR: ' + errorText;
-                console.error('Game Error:', errorText);
-            }
-
-            // Global error handler
-            window.addEventListener('error', (e) => {
-                showError(e.message);
-            });
 
             updateProgress(10, 'Initializing PixiJS...');
 
