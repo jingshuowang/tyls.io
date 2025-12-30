@@ -541,9 +541,12 @@
                         }
                         // In freelook mode, camera is moved by mouse drag only (no WASD)
 
-                        // Update stats (FPS and location)
-                        const fps = Math.round(app.ticker.FPS);
-                        document.getElementById('info').textContent = `FPS: ${fps} | Location: ${Math.floor(player.x)}, ${Math.floor(player.y)}`;
+                        // Update stats (FPS, location, zoom) with null checks
+                        const fps = Math.round(app.ticker.FPS || 0);
+                        const locX = player ? Math.floor(player.x) : 0;
+                        const locY = player ? Math.floor(player.y) : 0;
+                        const zoom = camera ? camera.zoom.toFixed(2) : '0.00';
+                        document.getElementById('info').textContent = `FPS: ${fps} | Location: ${locX}, ${locY} | Zoom: ${zoom}x`;
 
                         // Handle input (left=break/dirt, right=place/grass)
                         // Only allow building in normal mode, not in freelook
