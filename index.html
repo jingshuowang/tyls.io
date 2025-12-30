@@ -44,6 +44,7 @@
 </head>
 
 <body>
+    <div id="info"></div>
     <div id="activity"></div>
     <div id="loadingBar"
         style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 400px; display: none;">
@@ -59,7 +60,6 @@
     <script>
         // Wait for PixiJS to load
         window.addEventListener('load', async () => {
-            console.log('✅ FIXED VERSION LOADED - No loading bar code');
 
 
 
@@ -541,7 +541,7 @@
                         }
                         // In freelook mode, camera is moved by mouse drag only (no WASD)
 
-                        // Update stats (simplified: FPS and location only)
+                        // Update stats (FPS and location)
                         const fps = Math.round(app.ticker.FPS);
                         document.getElementById('info').textContent = `FPS: ${fps} | Location: ${Math.floor(player.x)}, ${Math.floor(player.y)}`;
 
