@@ -707,8 +707,7 @@
                         const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
 
                         // Dynamic render distance based on zoom (more zoom = less chunks needed)
-                        // Cap at 5 to prevent crashes when zoomed way out
-                        const renderDistance = Math.min(5, Math.ceil(5 / Math.max(camera.zoom, 1.0)));
+                        const renderDistance = Math.min(config.renderDistance, Math.ceil(config.renderDistance / Math.max(camera.zoom, 0.1)));
 
                         // Determine which chunks should be visible
                         const chunksToRender = new Set();
@@ -797,8 +796,10 @@
                                     const grassIdx = getGrassIdx(worldX, worldY);
                                     const grassTexture = getTileTexture(grassTex, grassIdx);
                                     const grassSprite = new PIXI.Sprite(grassTexture);
-                                    grassSprite.x = (worldX + 0.5) * TILE_SIZE;
-                                    grassSprite.y = (worldY + 0.5) * TILE_SIZE;
+                                    // Dual Grid: Visual tile centered on intersection (worldX+1, worldY+1)
+                                    // With anchor(0.5), edges align with visual grid (offset 0.5)
+                                    grassSprite.x = (worldX + 1) * TILE_SIZE;
+                                    grassSprite.y = (worldY + 1) * TILE_SIZE;
                                     grassSprite.anchor.set(0.5);
                                     grassSprite.width = TILE_SIZE;
                                     grassSprite.height = TILE_SIZE;
