@@ -3,7 +3,8 @@ the whole game is a pixel game with some lighting effects. would be between a 3d
 ## 🐛 Known Issues
 - [ ] **Mouse Update Lag**: Game elements (highlight, placed blocks) don't seem to update visually unless the mouse is moved. (Suspect render/input loop issue).
 - [ ] **Mining Lag**: Breaking/placng blocks causes stutter due to full chunk re-rendering. SAME FOR GRID RENDERING
-- [ ] **Visual Glitches**: Tile transitions at chunk boundaries can appear cut off or misaligned. half and quarter tiles.
+- [x] **Visual Glitches**: Tile transitions at chunk boundaries can appear cut off or misaligned. half and quarter tiles. (Fixed via Layering system)
+- [x] **pixijs problem**:  the blocks are rendering reallyl burry like the pixels arent being rendered as pixels. (Fixed via Nearest scaling)
 
 ## 🔮 Future Features
 - [ ] **Custom Cursor**: Add custom cursor. and crosshair in the center of the screen.

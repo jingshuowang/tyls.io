@@ -81,6 +81,9 @@
 
 
 
+            // Global PixiJS Settings for Pixel Art
+            PIXI.TextureSource.defaultOptions.scaleMode = 'nearest';
+
             // PixiJS App (v8 requires await)
             const app = new PIXI.Application();
             await app.init({
@@ -100,7 +103,7 @@
             resizeCanvas(); // Call once to ensure proper size
 
             // Pixel-perfect (v8 compatible)
-            app.ticker.maxFPS = 64;
+            // FPS Uncapped (User requested)
 
             // Load textures
             const grassTex = PIXI.Texture.from('Assets/Image/Tile/grass.png');
@@ -532,7 +535,11 @@
                         return PIXI.Texture.from(canvas);
                     })
                 ]).then(([dirtTexLoaded, grassTexLoaded, selectTexLoaded]) => {
-                    // Update global references
+                    // Update global references and set nearest neighbor scaling (Pixel Art)
+                    dirtTexLoaded.source.scaleMode = 'nearest';
+                    grassTexLoaded.source.scaleMode = 'nearest';
+                    selectTexLoaded.source.scaleMode = 'nearest';
+
                     const dirtTex = dirtTexLoaded;
                     const grassTex = grassTexLoaded;
                     const selectTex = selectTexLoaded;
