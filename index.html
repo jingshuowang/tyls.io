@@ -83,8 +83,12 @@
                 height: window.innerHeight,
                 backgroundColor: 0x1a1a1a,
                 antialias: false,
-                roundPixels: true  // Pixel-perfect rendering
+                roundPixels: true,  // Pixel-perfect rendering
+                preference: 'maximum-performance', // Hint to browser
+                powerPreference: 'high-performance'
             });
+            // Attempt to uncap FPS (0 = uncapped / monitor limit)
+            app.ticker.maxFPS = 0;
             document.body.appendChild(app.canvas);
 
             // Resize canvas to fill screen (fixes black bar at top)
@@ -1018,28 +1022,20 @@
                             overlayGraphics = new PIXI.Graphics();
                         }
 
-                        // 4. White visual grid (aligned with world grid) - ALWAYS RENDER
-                        overlayGraphics.lineStyle(0.5, 0xffffff, 0.2);
+                        // 4. White visual grid (aligned with world grid) - ONLY IF GRID IS ON
+                        // Removing "Always Render" behavior to save FPS
+                        /*
+                       overlayGraphics.lineStyle(0.5, 0xffffff, 0.2);
 
-                        // Calculate visible area for grid
-                        const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
-                        const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
-                        const renderDistance = Math.min(5, Math.ceil(5 / Math.max(camera.zoom, 1.0)));
-                        const startX = (playerChunkX - renderDistance) * CHUNK_SIZE;
-                        const endX = (playerChunkX + renderDistance + 1) * CHUNK_SIZE;
-                        const startY = (playerChunkY - renderDistance) * CHUNK_SIZE;
-                        const endY = (playerChunkY + renderDistance + 1) * CHUNK_SIZE;
+                       // Calculate visible area for grid
+                       const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
+                       const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
+                       // ... [omitted expensive generic loop] ...
+                       for (let x = startX; x <= endX; x++) { ... }
+                       */
 
-                        for (let x = startX; x <= endX; x++) {
-                            const visualX = (x + 0.5) * TILE_SIZE;
-                            overlayGraphics.moveTo(visualX, startY * TILE_SIZE);
-                            overlayGraphics.lineTo(visualX, endY * TILE_SIZE);
-                        }
-                        for (let y = startY; y <= endY; y++) {
-                            const visualY = (y + 0.5) * TILE_SIZE;
-                            overlayGraphics.moveTo(startX * TILE_SIZE, visualY);
-                            overlayGraphics.lineTo(endX * TILE_SIZE, visualY);
-                        }
+                        // Just use the debug loop below if needed.
+
 
                         // Multi-layer DEBUG grid system (when G is pressed)
                         if (showGrid) {
