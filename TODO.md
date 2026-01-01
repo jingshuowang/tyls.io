@@ -3,15 +3,15 @@ the whole game is a pixel game with some lighting effects. would be between a 3d
 ## 🐛 Known Issues
 - [ ] **Mouse Update Lag**: Game elements (highlight, placed blocks) don't seem to update visually unless the mouse is moved. (Suspect render/input loop issue).
 - [ ] **Mining Lag**: Breaking/placng blocks causes stutter due to full chunk re-rendering. SAME FOR GRID RENDERING
-- [x] **Visual Glitches**: Tile transitions at chunk boundaries can appear cut off or misaligned. half and quarter tiles. (Fixed via Layering system)
+- [ ] **Visual Glitches**: Tile transitions at chunk boundaries can appear cut off or misaligned (Recurring at borders?).
+- [] **Visual Glitches (Fixed 1.0)**: Fixed initial cutoff via Layering.
 - [x] **pixijs problem**:  the blocks are rendering reallyl burry like the pixels arent being rendered as pixels. (Fixed via Nearest scaling)
 
 ## 🔮 Future Features
 - [x] **Custom Cursor**: Add custom cursor. and crosshair in the center of the screen. (Implemented)
-- [x] **Spring Zoom**: Mini zoom in normal mode that zooms in/out like a spring (magnifying glass effect). Accessed by scroll wheel. (Implemented)
 - [ ] **UI System**: Hotbar, Settings, Inventory. Special 9-slice frame with blurred background.
 - [x] **Smooth Interaction**: Better dragging/continuous mining. (Implemented via Bresenham's)
-- [ ] **UI System**: Hotbar, Settings, Inventory. Special 9-slice frame with blurred background.
+- [ ] **UI System**: Hotbar, Settings, Inventory. Special frame with blurred background.
 - [ ] **Height System**: Add terrain depth/elevation.
 - [x] **Performance**: Optimize chunk updates (Partial updates to fix Mining Lag).
 - add a mini zoom in normal mode that zooms like a spring like a maginifying glass but only zooms once its like the magnifying glass in mincraft but can also zoom out by 1. accessed by scroll wheel.
