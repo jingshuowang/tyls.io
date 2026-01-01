@@ -26,7 +26,7 @@
             position: relative;
         }
 
-        /* Pseudo-element for extra colorful noise */
+        /* Pseudo-element for extra colorful noise - Denser/Full Screen */
         body::before {
             content: "";
             position: absolute;
@@ -34,22 +34,29 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background-image: radial-gradient(#ff0000 10%, transparent 10%),
-                radial-gradient(#00ff00 10%, transparent 10%),
-                radial-gradient(#0000ff 10%, transparent 10%);
-            background-size: 50px 50px;
-            background-position: 0 0, 15px 15px, 30px 30px;
+            background-image: radial-gradient(#ff0000 15%, transparent 16%),
+                radial-gradient(#00ff00 15%, transparent 16%),
+                radial-gradient(#0000ff 15%, transparent 16%);
+            background-size: 30px 30px;
+            /* Smaller size = more pixels */
+            background-position: 0 0, 10px 10px, 20px 20px;
             pointer-events: none;
             z-index: -1;
-            opacity: 0.5;
+            opacity: 0.8;
         }
 
-        /* 
+        /*
            The Container controls the size and holds the border-image.
            It does NOT have the blur itself, to avoid blurring outside the border.
         */
         .ui-frame {
-            position: relative;
+            position: absolute;
+            /* Changed to absolute for dragging */
+            /* Center initially */
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+
             width: 400px;
             height: 300px;
 
@@ -57,7 +64,7 @@
             border: var(--border-size) solid transparent;
             border-image-source: url('Assets/Image/ui_frame_placeholder.png');
             /* JS replaces this */
-            border-image-slice: 8 fill;
+            border-image-slice: 16 fill;
             /* 'fill' is crucial to draw the center */
             border-image-width: var(--border-size);
             border-image-repeat: stretch;
@@ -65,43 +72,49 @@
             padding: 20px;
             box-sizing: border-box;
             color: white;
-
-            /* No overflow hidden, otherwise border might get clipped */
+            cursor: move;
+            /* Indicate draggable */
+            user-select: none;
+            /* Prevent text selection while dragging */
         }
 
-        /* 
+        /*
            The Blur Zone
-           Positioned ABSOLUTELY to match the 'Red Area' (Content Box).
-           We use negative inset to pull it to the edge of the padding box/border box?
-           Actually, border-image paints in the BORDER area.
-           The content box is inside.
-           If we want to blur exactly where the red center was (which replaced the content area + border center):
-           We should position this to cover the background of the element.
+           Now uses CSS MASKS to restrict the blur to exactly the shape of the "Red Area".
+           We use 'mask-border' (or -webkit-mask-box-image) to 9-slice the mask
+           just like the frame border-image.
         */
         .ui-blur-zone {
             position: absolute;
-            /* Inset 0 relative to the padding-box (inside the border) */
-            /* But borders are transparent in 8-slice logic? No, they take space. */
-            /* We want to blur the "Inner" area. */
-            /* If the border is 24px, we inset by -something? or just fill? */
+            /* Fill the entire element to extend into the border area */
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
-
-            /* Use z-index -1 to sit behind text but on top of 'border-image fill' (if fill was separate) */
-            /* Wait, border-image 'fill' is drawn BENEATH content. */
-            /* So we need this blur layer to be *behind* text. */
             z-index: -1;
+            pointer-events: none;
+            /* Let clicks pass through to parent for dragging if needed */
 
             /* The Blur Effect */
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             background-color: rgba(0, 0, 0, 0.3);
-            /* Slight tint */
 
-            /* Optional: Match rounded corners of the red area if implied */
-            border-radius: var(--corner-radius);
+            /* The Mask Logic (9-Slice Mask) */
+            /* We start with placeholder, JS upgrades it to the generated mask */
+            -webkit-mask-box-image-source: url('Assets/Image/ui_frame_placeholder.png');
+            -webkit-mask-box-image-slice: 16 fill;
+            -webkit-mask-box-image-width: var(--border-size);
+            -webkit-mask-box-image-repeat: stretch;
+
+            /* Standard property */
+            mask-border-source: url('Assets/Image/ui_frame_placeholder.png');
+            mask-border-slice: 16 fill;
+            mask-border-width: var(--border-size);
+            mask-border-repeat: stretch;
+
+            /* Expand to cover the border area */
+            margin: calc(var(--border-size) * -1);
         }
 
         .ui-inner {
@@ -111,6 +124,15 @@
             height: 100%;
             display: flex;
             flex-direction: column;
+            pointer-events: none;
+            /* Let drags pass through container logic */
+        }
+
+        /* Re-enable pointer events for interactive children */
+        .btn,
+        h2,
+        p {
+            pointer-events: auto;
         }
 
         /* Text Styles */
@@ -146,11 +168,8 @@
 
     <!-- UI Component Example -->
     <div class="ui-frame" id="testFrame">
-        <!-- Constrained Blur Layer -->
-        <!-- This sits inside the element (padding box). 
-             Since border is 24px and box-sizing is border-box, this fills the 352x252 inner area.
-             This matches the "Center" of the 9-slice. -->
-        <div class="ui-blur-zone"></div>
+        <!-- Masked Blur Layer -->
+        <div class="ui-blur-zone" id="blurLayer"></div>
 
         <!-- Actual UI Elements -->
         <div class="ui-inner">
@@ -163,66 +182,148 @@
     </div>
 
     <script>
-        // "Red Key" Processor
-        // This script loads the frame image, looks for Pure Red (255,0,0),
-        // and turns it transparent (so the backdrop-filter blur shows through).
+        // --- Dragging Logic ---
+        const uiFrame = document.getElementById('testFrame');
+        let isDragging = false;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
 
-        const frameUrl = 'Assets/Image/frame.png'; // Will look for this file
+        uiFrame.addEventListener('mousedown', (e) => {
+            // Don't drag if clicking buttons
+            if (e.target.tagName === 'BUTTON') return;
+
+            isDragging = true;
+            // Calculate offset from the element's top-left
+            const rect = uiFrame.getBoundingClientRect();
+            dragOffsetX = e.clientX - rect.left;
+            dragOffsetY = e.clientY - rect.top;
+
+            // Remove transform centering once we start moving manually
+            uiFrame.style.transform = 'none';
+            uiFrame.style.left = rect.left + 'px';
+            uiFrame.style.top = rect.top + 'px';
+            uiFrame.style.bottom = 'auto';
+            uiFrame.style.right = 'auto';
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            uiFrame.style.left = (e.clientX - dragOffsetX) + 'px';
+            uiFrame.style.top = (e.clientY - dragOffsetY) + 'px';
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        // --- Red Key Processor ---
+        // "Red Key" Processor + Mask Generator
+        const frameUrl = 'Assets/Image/frame.png';
 
         const img = new Image();
         img.crossOrigin = "Anonymous";
 
         img.onload = function () {
-            // Create a canvas to process the image
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            canvas.width = img.width;
-            canvas.height = img.height;
+            const w = img.width;
+            const h = img.height;
 
-            // Draw original image
-            ctx.drawImage(img, 0, 0);
+            // Canvas 1: The Visual Frame (Red Removed)
+            const canvasFrame = document.createElement('canvas');
+            canvasFrame.width = w; canvasFrame.height = h;
+            const ctxFrame = canvasFrame.getContext('2d');
+            ctxFrame.drawImage(img, 0, 0);
 
-            // Get pixel data
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imageData.data;
+            // Canvas 2: The Blur Mask (Only Red Exists)
+            const canvasMask = document.createElement('canvas');
+            canvasMask.width = w; canvasMask.height = h;
+            const ctxMask = canvasMask.getContext('2d');
+            // Init with transparent
+            const maskData = ctxMask.createImageData(w, h);
+            const mData = maskData.data;
 
-            let hasRed = false;
+            try {
+                // Get pixel data from the drawn image
+                const frameData = ctxFrame.getImageData(0, 0, w, h);
+                const fData = frameData.data;
 
-            // Scan for Red (255, 0, 0)
-            for (let i = 0; i < data.length; i += 4) {
-                const r = data[i];
-                const g = data[i + 1];
-                const b = data[i + 2];
+                let hasRed = false;
 
-                // Tolerance could be added, but user said "bright red"
-                if (r > 240 && g < 10 && b < 10) {
-                    data[i + 3] = 0; // Alpha = 0 (Transparent)
-                    hasRed = true;
+                for (let i = 0; i < fData.length; i += 4) {
+                    const r = fData[i];
+                    const g = fData[i + 1];
+                    const b = fData[i + 2];
+                    const a = fData[i + 3];
+
+                    if (r > 240 && g < 10 && b < 10 && a > 0) {
+                        // FOUND RED PIXEL
+                        hasRed = true;
+
+                        // Frame: Make Transparent
+                        fData[i + 3] = 0;
+
+                        // Mask: Make Opaque (Black is fine, alpha matters)
+                        mData[i] = 0; mData[i + 1] = 0; mData[i + 2] = 0; // Black
+                        mData[i + 3] = 255; // Opaque
+                    } else {
+                        // NORMAL FRAME PIXEL (or transparent)
+
+                        // Frame: Keep as is
+
+                        // Mask: Make Transparent
+                        mData[i + 3] = 0;
+                    }
                 }
-            }
 
-            if (hasRed) {
-                console.log("Detected Red Mask! Applying chroma key...");
-                ctx.putImageData(imageData, 0, 0);
+                if (hasRed) {
+                    console.log("Applying Red Key Shader...");
 
-                // Convert processed canvas to data URL
-                const newUrl = canvas.toDataURL();
+                    // 1. Apply modified frame pixels
+                    ctxFrame.putImageData(frameData, 0, 0);
+                    const finalFrameUrl = canvasFrame.toDataURL();
 
-                // Apply to the frame
+                    // 2. Apply generated mask pixels
+                    ctxMask.putImageData(maskData, 0, 0);
+                    const finalMaskUrl = canvasMask.toDataURL();
+
+                    // Apply CSS
+                    const frameEl = document.getElementById('testFrame');
+                    const blurEl = document.getElementById('blurLayer');
+
+                    // Visual Frame
+                    frameEl.style.borderImageSource = `url('${finalFrameUrl}')`;
+                    frameEl.style.borderImageSlice = '16 fill'; // 16px Slices
+                    frameEl.classList.remove('placeholder-mode');
+
+                    // Blur Mask
+                    blurEl.style.webkitMaskBoxImageSource = `url('${finalMaskUrl}')`;
+                    blurEl.style.webkitMaskBoxImageSlice = '16 fill';
+
+                    blurEl.style.maskBorderSource = `url('${finalMaskUrl}')`;
+                    blurEl.style.maskBorderSlice = '16 fill';
+
+                } else {
+                    console.warn("No red mask found in image.");
+                    document.getElementById('testFrame').style.borderImageSource = `url('${frameUrl}')`;
+                }
+            } catch (e) {
+                console.error("CORS Error / Canvas Taint:", e);
+                // Fallback: Just show the raw image
                 const frameEl = document.getElementById('testFrame');
-                frameEl.style.borderImageSource = `url('${newUrl}')`;
+                frameEl.style.borderImageSource = `url('${frameUrl}')`;
                 frameEl.classList.remove('placeholder-mode');
-            } else {
-                console.log("No red mask found, using image as-is.");
-                document.getElementById('testFrame').style.borderImageSource = `url('${frameUrl}')`;
+
+                // Add a warning message on screen
+                const warn = document.createElement('div');
+                warn.style.position = 'fixed'; warn.style.top = '0'; warn.style.left = '0';
+                warn.style.background = 'red'; warn.style.color = 'white'; warn.style.padding = '5px';
+                warn.innerText = "Security Error: Run via Live Server to enable Red Key Shader!";
+                document.body.appendChild(warn);
             }
         };
 
         img.onerror = function () {
-            console.warn("frame.png not found yet. waiting for upload...");
-            // Keep placeholder styling defined in CSS
+            console.warn("frame.png not found.");
             document.getElementById('testFrame').classList.add('placeholder-mode');
-            document.getElementById('testFrame').style.borderImageSource = 'none';
         };
 
         img.src = frameUrl;
