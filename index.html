@@ -20,7 +20,8 @@
             display: block;
             image-rendering: pixelated;
             image-rendering: crisp-edges;
-            cursor: url('Assets/Image/cursor.png') 0 0, auto;
+            cursor: none;
+            /* Hide default/CSS cursor for Software Cursor */
         }
 
         #info {
@@ -124,6 +125,7 @@
             // RENDER_DISTANCE now comes from config.renderDistance
             const chunks = new Map(); // "cx,cy" -> chunk data
             const chunkContainers = new Map(); // "cx,cy" -> { dirt: Container, grass: Container }
+            const dirtyChunks = new Set(); // Set of chunk keys to re-render this frame
             let chunksRendered = 0;
 
             // renderChunk function reference - defined inside Promise.all().then() but accessed by setTile
@@ -190,28 +192,10 @@
                 const chunk = getChunk(cx, cy);
                 if (chunk[ty][tx] === value) return;
                 chunk[ty][tx] = value;
-                // Mark chunk for re-render
-                const key = `${cx},${cy}`;
-                if (chunkContainers.has(key)) {
-                    const containers = chunkContainers.get(key);
 
-                    // Remove both layers
-                    if (containers.dirt) {
-                        dirtLayer.removeChild(containers.dirt);
-                        containers.dirt.destroy({ children: true });
-                    }
-                    if (containers.grass) {
-                        grassLayer.removeChild(containers.grass);
-                        containers.grass.destroy({ children: true });
-                    }
-
-                    chunkContainers.delete(key);
-
-                    // Immediate re-render to prevent black flash
-                    if (renderChunk) {
-                        renderChunk(cx, cy);
-                    }
-                }
+                // Mark chunk for re-render (Batching)
+                // We don't render immediately anymore to prevent lag from multiple updates (dragging)
+                dirtyChunks.add(key);
             }
 
             // Get dirt variant (4x4 grid = 16 variations)
@@ -561,6 +545,22 @@
                     crosshairSprite.zIndex = 9999; // Super high z-index (Above world)
                     app.stage.addChild(crosshairSprite);
 
+                    // Setup Software Cursor (for scaling)
+                    // We load the cursor image as a sprite so we can scale it up
+                    // Setup Software Cursor (for scaling)
+                    let cursorSprite = null; // Declare here so game loop can see it
+                    PIXI.Assets.load('Assets/Image/cursor.png').then((cursorTex) => {
+                        cursorTex.source.scaleMode = 'nearest';
+                        cursorSprite = new PIXI.Sprite(cursorTex);
+                        cursorSprite.scale.set(2);
+                        cursorSprite.zIndex = 10000;
+                        cursorSprite.anchor.set(0, 0);
+                        app.stage.addChild(cursorSprite);
+                    }).catch(() => {
+                        console.warn("Cursor image failed to load, falling back to system cursor");
+                        app.canvas.style.cursor = 'auto'; // Fallback
+                    });
+
                     // Mouse move handler - just track position, logic is in main loop
                     window.addEventListener('mousemove', (e) => {
                         mouse.x = e.clientX;
@@ -760,14 +760,43 @@
                         // Transform world (camera system - center camera position on screen)
                         // Round to whole pixels to prevent "boiling" effect
                         world.scale.set(camera.zoom);
-                        world.x = Math.round(-camera.x * camera.zoom + app.screen.width / 2);
-                        world.y = Math.round(-camera.y * camera.zoom + app.screen.height / 2);
+                        world.x = Math.floor(-camera.x * camera.zoom + app.screen.width / 2);
+                        world.y = Math.floor(-camera.y * camera.zoom + app.screen.height / 2);
 
                         // Crosshair Position Update (Screen Space)
                         if (crosshairSprite) {
                             crosshairSprite.x = app.screen.width / 2;
                             crosshairSprite.y = app.screen.height / 2;
-                            // zIndex handled by sortableChildren now
+                        }
+
+                        // Cursor Position Update (Software Cursor)
+                        if (cursorSprite) {
+                            cursorSprite.x = mouse.x;
+                            cursorSprite.y = mouse.y;
+                            // Hide real cursor if we drifted out? CSS handles 'none'
+                        }
+
+                        // Process Dirty Chunks (Batch Rendering)
+                        if (dirtyChunks.size > 0 && renderChunk) {
+                            for (const key of dirtyChunks) {
+                                const [cx, cy] = key.split(',').map(Number);
+                                // Remove old container FIRST
+                                if (chunkContainers.has(key)) {
+                                    const containers = chunkContainers.get(key);
+                                    if (containers.dirt) {
+                                        dirtLayer.removeChild(containers.dirt);
+                                        containers.dirt.destroy({ children: true });
+                                    }
+                                    if (containers.grass) {
+                                        grassLayer.removeChild(containers.grass);
+                                        containers.grass.destroy({ children: true });
+                                    }
+                                    chunkContainers.delete(key);
+                                }
+                                // Re-render
+                                renderChunk(cx, cy);
+                            }
+                            dirtyChunks.clear();
                         }
                     });
 

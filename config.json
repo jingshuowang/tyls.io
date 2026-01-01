@@ -1,5 +1,5 @@
 {
-  "playerSpeed": 100,
+  "playerSpeed": 150,
   "defaultZoom": 2,
   "minZoom": 0.1,
   "maxZoom": 50,
