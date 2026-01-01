@@ -177,12 +177,20 @@
                     chunks.set(key, chunk);
 
                     // FIX: Dirty neighbors to ensure smooth edges (Dual Grid)
-                    // When a new chunk appears, neighbors need to redraw to connect to it
+                    // CRITICAL FIX: Only dirty neighbors that ALERTADLY EXIST.
+                    // This prevents infinite loop of Generation -> Render -> Generate Neighbor -> Render -> ...
                     if (typeof dirtyChunks !== 'undefined') {
-                        dirtyChunks.add(`${cx - 1},${cy}`);
-                        dirtyChunks.add(`${cx + 1},${cy}`);
-                        dirtyChunks.add(`${cx},${cy - 1}`);
-                        dirtyChunks.add(`${cx},${cy + 1}`);
+                        const neighbors = [
+                            `${cx - 1},${cy}`,
+                            `${cx + 1},${cy}`,
+                            `${cx},${cy - 1}`,
+                            `${cx},${cy + 1}`
+                        ];
+                        for (const nKey of neighbors) {
+                            if (chunks.has(nKey)) {
+                                dirtyChunks.add(nKey);
+                            }
+                        }
                     }
                 }
                 return chunks.get(key);
@@ -596,9 +604,9 @@
                         mouse.y = e.clientY;
                     });
 
-                    // Independent Cursor Loop - Synced to Monitor Refresh Rate (visuals only)
-                    // This solves the high-polling mouse lag by updating only when the screen can actually draw.
-                    const updateCursorVisuals = () => {
+                    // Synced Cursor: Merged into PixiJS Ticker (The "Engine Heartbeat")
+                    // This ensures the cursor updates exactly when the game renders, removing jitter.
+                    app.ticker.add(() => {
                         // 1. Update Cursor Sprite
                         if (cursorSprite) {
                             cursorSprite.x = mouse.x;
@@ -618,10 +626,7 @@
                                 selectSprite.y = hoveredTileY * TILE_SIZE;
                             }
                         }
-                        requestAnimationFrame(updateCursorVisuals);
-                    };
-                    // Start the cursor loop
-                    requestAnimationFrame(updateCursorVisuals);
+                    }, PIXI.UPDATE_PRIORITY.INTERACTION); // High priority update
 
                     // Mouse down - change to pressed texture
                     window.addEventListener('mousedown', (e) => {
