@@ -60,6 +60,24 @@
     <div id="info"></div>
     <div id="activity"></div>
 
+    <script>
+        window.onerror = function (msg, url, line, col, error) {
+            const div = document.createElement('div');
+            div.style.position = 'fixed';
+            div.style.top = '50%';
+            div.style.left = '50%';
+            div.style.transform = 'translate(-50%, -50%)';
+            div.style.background = 'rgba(255,0,0,0.8)';
+            div.style.color = 'white';
+            div.style.padding = '20px';
+            div.style.border = '2px solid white';
+            div.style.zIndex = '99999';
+            div.style.fontFamily = 'monospace';
+            div.innerText = `CRITICAL ERROR:\n${msg}\nLine: ${line}`;
+            document.body.appendChild(div);
+            return false;
+        };
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.5.2/dist/pixi.min.js"></script>
     <script>
         // Wait for PixiJS to load
@@ -913,12 +931,11 @@
                                 chunkDirt.addChild(dirtSprite);
 
                                 // Grass tile -> Grass Layer
-                                // Reverted to getTile to fix "Half Blocks" / Cutoff edges
-                                // The lag was likely the Debug Grid, so generating 16x16 arrays is fine.
-                                const hasGrass = getTile(worldX, worldY) === 1 ||
-                                    getTile(worldX + 1, worldY) === 1 ||
-                                    getTile(worldX, worldY + 1) === 1 ||
-                                    getTile(worldX + 1, worldY + 1) === 1;
+                                // Reverted to getTileSafe to PREVENT INFINITE RECURSION during rendering
+                                const hasGrass = getTileSafe(worldX, worldY) === 1 ||
+                                    getTileSafe(worldX + 1, worldY) === 1 ||
+                                    getTileSafe(worldX, worldY + 1) === 1 ||
+                                    getTileSafe(worldX + 1, worldY + 1) === 1;
 
                                 if (hasGrass) {
                                     const grassIdx = getGrassIdx(worldX, worldY);

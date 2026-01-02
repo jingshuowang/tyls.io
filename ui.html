@@ -14,13 +14,16 @@
         }
 
         body {
-            background-color: #000;
+            background-color: #222;
+            background-image: url('Assets/Image/Tile/grass.png');
+            background-repeat: repeat;
+            background-size: 64px 64px;
+            /* Adjust scale as needed */
             margin: 0;
             overflow: hidden;
-            /* Prevent scrollbars from full screen noise */
         }
 
-        /* body::before removed - we use JS specific random noise now */
+        /* JS Noise generator removed in favor of texture */
 
         /*
            The Container controls the size and holds the border-image.
@@ -107,8 +110,8 @@
             height: 100%;
             display: flex;
             flex-direction: column;
-            pointer-events: none;
-            /* Let drags pass through container logic */
+            pointer-events: auto;
+            /* Capture clicks for dragging */
         }
 
         /* Re-enable pointer events for interactive children */
@@ -173,15 +176,37 @@
         let dragOffsetX = 0;
         let dragOffsetY = 0;
 
-        // ... (Noise Generation omitted for brevity, logic unchanged) ... Note: keeping existing functions if not replacing them.
-        // Wait, replace_file_content replaces the whole block. I need to be careful not to delete generateRandomNoise if I target lines 152-325.
-        // I will match the content carefully.
+        uiFrame.addEventListener('mousedown', (e) => {
+            if (e.target.tagName === 'BUTTON') return;
+            e.preventDefault();
+            isDragging = true;
+
+            const rect = uiFrame.getBoundingClientRect();
+            dragOffsetX = e.clientX - rect.left;
+            dragOffsetY = e.clientY - rect.top;
+
+            uiFrame.style.transform = 'none';
+            uiFrame.style.left = rect.left + 'px';
+            uiFrame.style.top = rect.top + 'px';
+            uiFrame.style.bottom = 'auto';
+            uiFrame.style.right = 'auto';
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            uiFrame.style.left = (e.clientX - dragOffsetX) + 'px';
+            uiFrame.style.top = (e.clientY - dragOffsetY) + 'px';
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
 
         // --- Red Key Processor ---
         const frameUrl = 'Assets/Image/frame.png';
 
         const img = new Image();
-        img.crossOrigin = "Anonymous";
+        img.crossOrigin = "Anonymous"; // Try this, though file:// might ignore it
 
         img.onload = function () {
             try {
@@ -190,84 +215,86 @@
                 const warnBanner = document.getElementById('warnBanner');
                 if (warnBanner) warnBanner.style.display = 'none';
 
-                // --- 1. Dynamic Slice Calculation ---
-                // Default 1/3 of image size to handle small pixel art
                 let sliceSize = Math.floor(Math.min(w, h) / 3);
                 if (sliceSize < 1) sliceSize = 1;
 
                 const frameEl = document.getElementById('testFrame');
                 const blurEl = document.getElementById('blurLayer');
-                console.log(`UI Debug: Image ${w}x${h}, Slice: ${sliceSize}px`);
 
-                let finalFrameUrl, finalMaskUrl;
+                console.log(`Processing Red Key... ${w}x${h}`);
 
-                try {
-                    // Canvas 1: The Visual Frame (Red Removed)
-                    const canvasFrame = document.createElement('canvas');
-                    canvasFrame.width = w; canvasFrame.height = h;
-                    const ctxFrame = canvasFrame.getContext('2d');
-                    ctxFrame.drawImage(img, 0, 0);
+                // Canvas 1: Visual Frame (Red -> Transparent)
+                const cFrame = document.createElement('canvas');
+                cFrame.width = w; cFrame.height = h;
+                const ctxFrame = cFrame.getContext('2d');
+                ctxFrame.drawImage(img, 0, 0);
 
-                    // Canvas 2: The Blur Mask (Only Red Exists)
-                    const canvasMask = document.createElement('canvas');
-                    canvasMask.width = w; canvasMask.height = h;
-                    const ctxMask = canvasMask.getContext('2d');
-                    const maskData = ctxMask.createImageData(w, h);
-                    const mData = maskData.data;
+                // Canvas 2: Blur Mask (Red -> Opaque White, Else -> Transparent)
+                const cMask = document.createElement('canvas');
+                cMask.width = w; cMask.height = h;
+                const ctxMask = cMask.getContext('2d');
+                const maskData = ctxMask.createImageData(w, h);
+                const mData = maskData.data;
 
-                    const frameData = ctxFrame.getImageData(0, 0, w, h);
-                    const fData = frameData.data;
+                const frameData = ctxFrame.getImageData(0, 0, w, h);
+                const fData = frameData.data;
 
-                    // ... Processing Pixel Data (Red Check) ...
-                    for (let i = 0; i < fData.length; i += 4) {
-                        const r = fData[i], g = fData[i + 1], b = fData[i + 2], a = fData[i + 3];
-                        if (r > 200 && g < 40 && b < 40 && a > 0) {
-                            fData[i + 3] = 0; // Transparent
-                            mData[i] = mData[i + 1] = mData[i + 2] = 0; mData[i + 3] = 255; // Mask Opaque
-                        } else {
-                            mData[i + 3] = 0; // Mask Transparent
-                        }
+                for (let i = 0; i < fData.length; i += 4) {
+                    const r = fData[i], g = fData[i + 1], b = fData[i + 2], a = fData[i + 3];
+
+                    // Check for RED (Red > 200, others low)
+                    if (r > 200 && g < 50 && b < 50 && a > 0) {
+                        // IT IS RED:
+                        // 1. Remove from Visual Frame (make transparent hole)
+                        fData[i + 3] = 0;
+
+                        // 2. Add to Blur Mask (make visible)
+                        mData[i] = mData[i + 1] = mData[i + 2] = 255;
+                        mData[i + 3] = 255;
+                    } else {
+                        // NOT RED (Border):
+                        // 1. Keep in Visual Frame
+                        // 2. Hide from Blur Mask
+                        mData[i + 3] = 0;
                     }
-
-                    ctxFrame.putImageData(frameData, 0, 0);
-                    ctxMask.putImageData(maskData, 0, 0);
-
-                    finalFrameUrl = canvasFrame.toDataURL();
-                    finalMaskUrl = canvasMask.toDataURL();
-
-                } catch (securityErr) {
-                    console.warn("Canvas Tainted (SecurityError) - using raw image fallback.");
-                    if (warnBanner) {
-                        warnBanner.style.display = 'block';
-                        warnBanner.innerText = "Security Warning: Local file access prevented advanced masking. Using fallback.";
-                    }
-                    // Fallback: Use raw image. Red pixels will be visible, but border will exist.
-                    finalFrameUrl = frameUrl;
-                    finalMaskUrl = frameUrl; // Mask won't be perfect but better than nothing
                 }
 
-                // Apply CSS
+                // Apply changes
+                ctxFrame.putImageData(frameData, 0, 0);
+                ctxMask.putImageData(maskData, 0, 0);
+
+                const finalFrameUrl = cFrame.toDataURL();
+                const finalMaskUrl = cMask.toDataURL();
+
+                // Apply to DOM
                 frameEl.style.borderImage = `url(${finalFrameUrl}) ${sliceSize} fill / var(--border-size) stretch`;
+
+                // Enable Blur with Mask
+                blurEl.style.display = 'block';
+                // Pure Blur (Transparent fill)
+                blurEl.style.backgroundColor = 'transparent';
+                blurEl.style.backdropFilter = 'blur(10px)';
+                blurEl.style.webkitBackdropFilter = 'blur(10px)';
+
                 const maskVal = `url(${finalMaskUrl}) ${sliceSize} fill / var(--border-size) stretch`;
                 blurEl.style.webkitMaskBoxImage = maskVal;
                 blurEl.style.maskBorder = maskVal;
 
             } catch (err) {
-                console.error("UI Script Error:", err);
+                console.warn("Security/Script Error (likely file:// access):", err);
                 const warnBanner = document.getElementById('warnBanner');
                 if (warnBanner) {
                     warnBanner.style.display = 'block';
-                    warnBanner.innerText = "Critical Error: " + err.message;
+                    warnBanner.style.background = 'orange';
+                    warnBanner.innerText = "Local File Security Blocked Red Key. Using Fallback (Raw Image).";
                 }
+                // Fallback: Just show raw image, no blur
+                const frameEl = document.getElementById('testFrame');
+                // Default 1/3 slice (re-calc locally if scope issue, but safe here)
+                let sliceSize = Math.floor(Math.min(img.width, img.height) / 3);
+                frameEl.style.borderImage = `url(${frameUrl}) ${sliceSize} fill / var(--border-size) stretch`;
             }
         };
-
-        img.onerror = function () {
-            console.warn("frame.png not found.");
-            document.getElementById('testFrame').classList.add('placeholder-mode');
-        };
-
-        img.src = frameUrl;
     </script>
 
 </body>
