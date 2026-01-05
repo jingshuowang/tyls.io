@@ -60,6 +60,15 @@
     <div id="info"></div>
     <div id="activity"></div>
 
+    <div id="loading"
+        style="position:fixed;top:0;left:0;width:100%;height:100%;background:#111;z-index:9999;display:flex;flex-direction:column;justify-content:center;align-items:center;color:white;font-family:monospace;transition:opacity 0.5s;">
+        <h1 style="margin-bottom:20px;font-size:32px;">Generating World...</h1>
+        <div style="width:300px;height:20px;border:2px solid white;padding:2px;">
+            <div id="loading-bar" style="width:0%;height:100%;background:white;transition:width 0.1s;"></div>
+        </div>
+        <p id="loading-text" style="margin-top:10px;">0%</p>
+    </div>
+
     <script>
         window.onerror = function (msg, url, line, col, error) {
             const div = document.createElement('div');
@@ -410,20 +419,13 @@
                     camera.zoom = Math.max(config.minZoom, Math.min(config.maxZoom, camera.zoom * zoomFactor));
                 });
 
-                // Garbage Collection for Chunks (Prevent Memory Leak)
+                // Garbage Collection: INCREMENTAL (No Lag Spikes)
+                // Logic moved to Ticker inside startGameLoop for smoother execution
+                /*
                 setInterval(() => {
-                    const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
-                    const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
-                    const GC_RADIUS = config.renderDistance + 20; // Keep slightly more than render distance
-
-                    for (const key of chunks.keys()) {
-                        const [cx, cy] = key.split(',').map(Number);
-                        const dist = Math.max(Math.abs(cx - playerChunkX), Math.abs(cy - playerChunkY));
-                        if (dist > GC_RADIUS) {
-                            chunks.delete(key);
-                        }
-                    }
-                }, 5000); // Run every 5 seconds
+                    // ... old code ...
+                }, 5000);
+                */
 
                 // Keyboard
                 const keys = {};
@@ -705,159 +707,398 @@
                     const avgGrassColor = getAverageColor(grassTex);
 
 
-                    // Pre-generate chunks around spawn to prevent lag spikes
-                    const pregenRadius = config.renderDistance + 5; // Generate extra chunks
-                    let chunksGenerated = 0;
+                    // ASYNC Pre-generation with Loading Bar
+                    const pregenRadius = config.renderDistance + 8; // Load A LOT (User Request)
                     const totalChunks = (pregenRadius * 2 + 1) * (pregenRadius * 2 + 1);
+                    let chunksGenerated = 0;
+                    let genCX = -pregenRadius;
+                    let genCY = -pregenRadius;
 
-                    for (let cy = -pregenRadius; cy <= pregenRadius; cy++) {
-                        for (let cx = -pregenRadius; cx <= pregenRadius; cx++) {
-                            getChunk(cx, cy); // This generates and caches the chunk
+                    // Hide Canvas initially
+                    app.canvas.style.opacity = '0';
+                    app.canvas.style.transition = 'opacity 1s';
+
+                    function processPregen() {
+                        const startTime = performance.now();
+                        // Generate chunks for 16ms (1 frame)
+                        while (performance.now() - startTime < 16 && genCY <= pregenRadius) {
+                            getChunk(genCX, genCY);
                             chunksGenerated++;
-                            if (chunksGenerated % 100 === 0) {
-                                // Chunk generation progress (removed loading bar)
+
+                            // Move to next
+                            genCX++;
+                            if (genCX > pregenRadius) {
+                                genCX = -pregenRadius;
+                                genCY++;
                             }
+                        }
+
+                        // Update UI
+                        const progress = Math.min(100, Math.floor((chunksGenerated / totalChunks) * 100));
+                        document.getElementById('loading-bar').style.width = progress + '%';
+                        document.getElementById('loading-text').innerText = `${progress}% (${chunksGenerated} Chunks)`;
+
+                        if (genCY <= pregenRadius) {
+                            requestAnimationFrame(processPregen);
+                        } else {
+                            // Done!
+                            setTimeout(() => {
+                                const loading = document.getElementById('loading');
+                                loading.style.opacity = '0';
+                                app.canvas.style.opacity = '1';
+                                setTimeout(() => loading.remove(), 500);
+                                startGameLoop(); // Start the game only after loading
+                            }, 200);
                         }
                     }
 
+                    // Start Loading
+                    processPregen();
 
-
+                    // Incremental GC State
+                    let gcIterator = null;
+                    const GC_RADIUS = config.renderDistance + 20;
 
                     let lastTime = performance.now();
 
-                    // Game loop
-                    app.ticker.add(() => {
-                        const time = performance.now();
-                        const dt = Math.min((time - lastTime) / 1000, 0.1);
-                        lastTime = time;
+                    // WRAPPED Game Loop (Started after loading)
+                    function startGameLoop() {
+                        let lastTime = performance.now();
 
-                        // Camera movement (WASD)
-                        let moveX = 0, moveY = 0;
-                        if (keys['a'] || keys['arrowleft']) moveX = -1;
-                        if (keys['d'] || keys['arrowright']) moveX = 1;
-                        if (keys['w'] || keys['arrowup']) moveY = -1;
-                        if (keys['s'] || keys['arrowdown']) moveY = 1;
+                        app.ticker.add((ticker) => {
+                            // Incremental Garbage Collection (Process 20 chunks per frame)
+                            if (!gcIterator) gcIterator = chunks.keys();
 
-                        // Normalize diagonal movement
-                        if (moveX !== 0 && moveY !== 0) {
-                            moveX *= 0.707;
-                            moveY *= 0.707;
-                        }
+                            const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
+                            const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
 
-                        // Movement logic - WASD only works in normal mode
-                        if (!isAltPressed) {
-                            // Normal mode: WASD moves player, camera follows
-                            player.x += moveX * player.speed * dt;
-                            player.y += moveY * player.speed * dt;
-                            camera.x = player.x + player.width / 2;
-                            camera.y = player.y + player.height / 2;
-                        }
-                        // In freelook mode, camera is moved by mouse drag only (no WASD)
-
-                        // Update stats (FPS, location, zoom) with null checks
-                        const fps = Math.round(app.ticker.FPS || 0);
-                        const locX = player ? Math.floor(player.x) : 0;
-                        const locY = player ? Math.floor(player.y) : 0;
-                        const zoom = camera ? camera.zoom.toFixed(2) : '0.00';
-                        const infoElement = document.getElementById('info');
-                        if (infoElement) {
-                            infoElement.textContent = `FPS: ${fps} | x: ${locX} y: ${locY} | Zoom: ${zoom}x`;
-                        }
-
-                        // Update world-mouse interaction every frame (fixes "laggy" highlight on camera move)
-                        // Calculate world coordinates from mouse screen position
-                        // world.x/y are the screen center offsets? No, world transform is: 
-                        // world.x = -camera.x * zoom + screenW/2
-                        // mouseScreen = worldPos * zoom + world.x
-                        // worldPos = (mouseScreen - world.x) / zoom
-
-                        // Use world.scale.x which is set to camera.zoom in this loop
-                        if (world.scale.x !== 0) {
-                            const worldX = (mouse.x - world.x) / world.scale.x;
-                            const worldY = (mouse.y - world.y) / world.scale.y;
-
-                            hoveredTileX = Math.floor(worldX / TILE_SIZE);
-                            hoveredTileY = Math.floor(worldY / TILE_SIZE);
-                        }
-
-                        // Update select sprite position to hovered tile
-                        if (hoveredTileX !== null && hoveredTileY !== null) {
-                            selectSprite.x = hoveredTileX * TILE_SIZE;
-                            selectSprite.y = hoveredTileY * TILE_SIZE;
-                        }
-
-                        // Handle input (left=break/dirt, right=place/grass)
-                        const isInteractable = !isAltPressed && !camera.freelook;
-
-                        // Only allow building in normal mode, not in freelook
-                        if ((mouse.left || mouse.right) && isInteractable) {
-                            const worldX = Math.floor((mouse.x - world.x) / camera.zoom / TILE_SIZE);
-                            const worldY = Math.floor((mouse.y - world.y) / camera.zoom / TILE_SIZE);
-                            const val = mouse.right ? 1 : 0;
-
-                            if (mouse.lastX !== undefined && mouse.lastY !== undefined) {
-                                // Bresenham's Line Algorithm for smooth drawing
-                                let x0 = mouse.lastX;
-                                let y0 = mouse.lastY;
-                                const x1 = worldX;
-                                const y1 = worldY;
-                                const dx = Math.abs(x1 - x0);
-                                const dy = Math.abs(y1 - y0);
-                                const sx = (x0 < x1) ? 1 : -1;
-                                const sy = (y0 < y1) ? 1 : -1;
-                                let err = dx - dy;
-
-                                while (true) {
-                                    setTile(x0, y0, val);
-                                    if (x0 === x1 && y0 === y1) break;
-                                    const e2 = 2 * err;
-                                    if (e2 > -dy) { err -= dy; x0 += sx; }
-                                    if (e2 < dx) { err += dx; y0 += sy; }
+                            let gcCount = 0;
+                            while (gcCount < 20) {
+                                const next = gcIterator.next();
+                                if (next.done) {
+                                    gcIterator = chunks.keys(); // Restart
+                                    break;
                                 }
-                            } else {
-                                setTile(worldX, worldY, val);
+                                const key = next.value;
+                                const [cx, cy] = key.split(',').map(Number);
+                                const dist = Math.max(Math.abs(cx - playerChunkX), Math.abs(cy - playerChunkY));
+
+                                // Only delete if REALLY far (GC Radius)
+                                if (dist > GC_RADIUS) {
+                                    chunks.delete(key);
+                                }
+                                gcCount++;
                             }
 
-                            // Update last position
-                            mouse.lastX = worldX;
-                            mouse.lastY = worldY;
-                        } else {
-                            // Reset last position if not clicking
-                            mouse.lastX = undefined;
-                            mouse.lastY = undefined;
+                            // Time Delta
+                            const time = performance.now();
+                            const dt = Math.min((time - lastTime) / 1000, 0.1);
+                            lastTime = time;
+
+                            // Camera movement (WASD)
+                            let moveX = 0, moveY = 0;
+                            if (keys['a'] || keys['arrowleft']) moveX = -1;
+                            if (keys['d'] || keys['arrowright']) moveX = 1;
+                            if (keys['w'] || keys['arrowup']) moveY = -1;
+                            if (keys['s'] || keys['arrowdown']) moveY = 1;
+
+                            // Normalize diagonal movement
+                            if (moveX !== 0 && moveY !== 0) {
+                                moveX *= 0.707;
+                                moveY *= 0.707;
+                            }
+
+                            // Movement logic - WASD only works in normal mode
+                            if (!isAltPressed) {
+                                // Normal mode: WASD moves player, camera follows
+                                player.x += moveX * player.speed * dt;
+                                player.y += moveY * player.speed * dt;
+                                camera.x = player.x + player.width / 2;
+                                camera.y = player.y + player.height / 2;
+                            }
+                            // In freelook mode, camera is moved by mouse drag only (no WASD)
+
+                            // Update stats (FPS, location, zoom) with null checks
+                            const fps = Math.round(app.ticker.FPS || 0);
+                            const locX = player ? Math.floor(player.x) : 0;
+                            const locY = player ? Math.floor(player.y) : 0;
+                            const zoom = camera ? camera.zoom.toFixed(2) : '0.00';
+                            const infoElement = document.getElementById('info');
+                            if (infoElement) {
+                                infoElement.textContent = `FPS: ${fps} | x: ${locX} y: ${locY} | Zoom: ${zoom}x`;
+                            }
+
+                            // Update world-mouse interaction every frame (fixes "laggy" highlight on camera move)
+                            // Calculate world coordinates from mouse screen position
+                            // world.x/y are the screen center offsets? No, world transform is: 
+                            // world.x = -camera.x * zoom + screenW/2
+                            // mouseScreen = worldPos * zoom + world.x
+                            // worldPos = (mouseScreen - world.x) / zoom
+
+                            // Use world.scale.x which is set to camera.zoom in this loop
+                            if (world.scale.x !== 0) {
+                                const worldX = (mouse.x - world.x) / world.scale.x;
+                                const worldY = (mouse.y - world.y) / world.scale.y;
+
+                                hoveredTileX = Math.floor(worldX / TILE_SIZE);
+                                hoveredTileY = Math.floor(worldY / TILE_SIZE);
+                            }
+
+                            // Update select sprite position to hovered tile
+                            if (hoveredTileX !== null && hoveredTileY !== null) {
+                                selectSprite.x = hoveredTileX * TILE_SIZE;
+                                selectSprite.y = hoveredTileY * TILE_SIZE;
+                            }
+
+                            // Handle input (left=break/dirt, right=place/grass)
+                            const isInteractable = !isAltPressed && !camera.freelook;
+
+                            // Only allow building in normal mode, not in freelook
+                            if ((mouse.left || mouse.right) && isInteractable) {
+                                const worldX = Math.floor((mouse.x - world.x) / camera.zoom / TILE_SIZE);
+                                const worldY = Math.floor((mouse.y - world.y) / camera.zoom / TILE_SIZE);
+                                const val = mouse.right ? 1 : 0;
+
+                                if (mouse.lastX !== undefined && mouse.lastY !== undefined) {
+                                    // Bresenham's Line Algorithm for smooth drawing
+                                    let x0 = mouse.lastX;
+                                    let y0 = mouse.lastY;
+                                    const x1 = worldX;
+                                    const y1 = worldY;
+                                    const dx = Math.abs(x1 - x0);
+                                    const dy = Math.abs(y1 - y0);
+                                    const sx = (x0 < x1) ? 1 : -1;
+                                    const sy = (y0 < y1) ? 1 : -1;
+                                    let err = dx - dy;
+
+                                    while (true) {
+                                        setTile(x0, y0, val);
+                                        if (x0 === x1 && y0 === y1) break;
+                                        const e2 = 2 * err;
+                                        if (e2 > -dy) { err -= dy; x0 += sx; }
+                                        if (e2 < dx) { err += dx; y0 += sy; }
+                                    }
+                                } else {
+                                    setTile(worldX, worldY, val);
+                                }
+
+                                // Update last position
+                                mouse.lastX = worldX;
+                                mouse.lastY = worldY;
+                            } else {
+                                // Reset last position if not clicking
+                                mouse.lastX = undefined;
+                                mouse.lastY = undefined;
+                            }
+
+                            // Hide selection sprite in freelook mode
+                            if (selectSprite) {
+                                selectSprite.visible = isInteractable && hoveredTileX !== null && hoveredTileY !== null;
+                            }
+
+                            render();
+                            renderOverlays();
+
+
+                            // Transform world (camera system - center camera position on screen)
+                            // Reverted rounding to fix diagonal movement feel
+                            world.scale.set(camera.zoom);
+                            world.x = -camera.x * camera.zoom + app.screen.width / 2;
+                            world.y = -camera.y * camera.zoom + app.screen.height / 2;
+
+                            // Crosshair Position Update (Screen Space)
+                            if (crosshairSprite) {
+                                crosshairSprite.x = app.screen.width / 2;
+                                crosshairSprite.y = app.screen.height / 2;
+                            }
+
+                            // Cursor is now updated in 'mousemove' listener for zero latency.
+                            // Removed game loop update to prevent fighting/jitter.
+
+                            // Process Dirty Chunks (Batch Rendering)
+                            // Process Dirty Chunks (Batch Rendering) - With Distance Culling to prevent autogen loop
+                            if (dirtyChunks.size > 0 && renderChunk) {
+                                // SNAPSHOT: Create array copy and clear Set immediately.
+                                // This prevents infinite loops where rendering adds new dirty chunks during the same frame.
+                                const batch = Array.from(dirtyChunks);
+                                dirtyChunks.clear();
+
+                                // Calculate center chunk for culling
+                                const centerCX = Math.floor(camera.x / TILE_SIZE / CHUNK_SIZE);
+                                const centerCY = Math.floor(camera.y / TILE_SIZE / CHUNK_SIZE);
+                                const renderCap = config.renderDistance + 4; // Allow small buffer
+
+                                for (const key of batch) {
+                                    const [cx, cy] = key.split(',').map(Number);
+
+                                    // SAFETY: Skip rendering if too far (Prevents infinite generation loop)
+                                    if (Math.abs(cx - centerCX) > renderCap || Math.abs(cy - centerCY) > renderCap) {
+                                        continue;
+                                    }
+
+                                    // Remove old container FIRST
+                                    if (chunkContainers.has(key)) {
+                                        const containers = chunkContainers.get(key);
+                                        if (containers.dirt) {
+                                            dirtLayer.removeChild(containers.dirt);
+                                            containers.dirt.destroy({ children: true });
+                                        }
+                                        if (containers.grass) {
+                                            grassLayer.removeChild(containers.grass);
+                                            containers.grass.destroy({ children: true });
+                                        }
+                                        chunkContainers.delete(key);
+                                    }
+                                    // Re-render
+                                    renderChunk(cx, cy);
+                                }
+                            }
+                        });
+
+                        // Render function - chunk-based with caching
+                        let lastLODState = camera.zoom < config.lodThreshold;
+
+                        // Chunk Rendering Function - assign to outer scope variable
+                        renderChunk = function (cx, cy) {
+                            const key = `${cx},${cy}`;
+                            const chunk = getChunk(cx, cy);
+                            const chunkDirt = new PIXI.Container();
+                            const chunkGrass = new PIXI.Container();
+
+                            // LOD: If zoomed out below threshold, render simple colored tiles (Minimap style)
+                            if (camera.zoom < config.lodThreshold) {
+                                const graphics = new PIXI.Graphics();
+
+                                // Draw each tile as a simple colored rectangle
+                                for (let ty = 0; ty < CHUNK_SIZE; ty++) {
+                                    for (let tx = 0; tx < CHUNK_SIZE; tx++) {
+                                        const tileVal = chunk[ty][tx];
+                                        const color = tileVal === 1 ? avgGrassColor : avgDirtColor;
+
+                                        graphics.beginFill(color);
+                                        graphics.drawRect(
+                                            (cx * CHUNK_SIZE + tx) * TILE_SIZE,
+                                            (cy * CHUNK_SIZE + ty) * TILE_SIZE,
+                                            TILE_SIZE,
+                                            TILE_SIZE
+                                        );
+                                        graphics.endFill();
+                                    }
+                                }
+
+                                chunkDirt.addChild(graphics);
+                                chunkContainers.set(key, { dirt: chunkDirt, grass: chunkGrass });
+
+                                dirtLayer.addChild(chunkDirt);
+
+                                return;
+                            }
+
+                            // Render all tiles in this chunk
+                            for (let ty = 0; ty < CHUNK_SIZE; ty++) {
+                                for (let tx = 0; tx < CHUNK_SIZE; tx++) {
+                                    const worldX = cx * CHUNK_SIZE + tx;
+                                    const worldY = cy * CHUNK_SIZE + ty;
+
+                                    // Dirt tile -> Dirt Layer
+                                    const dirtIdx = getDirtIdx(worldX, worldY);
+                                    const dirtTexture = getTileTexture(dirtTex, dirtIdx);
+                                    const dirtSprite = new PIXI.Sprite(dirtTexture);
+                                    dirtSprite.x = worldX * TILE_SIZE;
+                                    dirtSprite.y = worldY * TILE_SIZE;
+                                    dirtSprite.width = TILE_SIZE;
+                                    dirtSprite.height = TILE_SIZE;
+                                    chunkDirt.addChild(dirtSprite);
+
+                                    // Grass tile -> Grass Layer
+                                    // FIX: Use getTile (forces generation) to ensure correct Autotiling at edges.
+                                    // Distance check in main loop prevents infinite recursion.
+                                    const hasGrass = getTile(worldX, worldY) === 1 ||
+                                        getTile(worldX + 1, worldY) === 1 ||
+                                        getTile(worldX, worldY + 1) === 1 ||
+                                        getTile(worldX + 1, worldY + 1) === 1;
+
+                                    if (hasGrass) {
+                                        const grassIdx = getGrassIdx(worldX, worldY);
+                                        const grassTexture = getTileTexture(grassTex, grassIdx);
+                                        const grassSprite = new PIXI.Sprite(grassTexture);
+
+                                        // Aligned to White Grid (Dual Grid) - Use Center Anchor
+                                        grassSprite.anchor.set(0.5);
+                                        grassSprite.x = (worldX + 1) * TILE_SIZE;
+                                        grassSprite.y = (worldY + 1) * TILE_SIZE;
+
+                                        grassSprite.width = TILE_SIZE;
+                                        grassSprite.height = TILE_SIZE;
+                                        chunkGrass.addChild(grassSprite);
+                                    }
+                                }
+                            }
+
+                            chunkContainers.set(key, { dirt: chunkDirt, grass: chunkGrass });
+                            dirtLayer.addChild(chunkDirt);
+                            grassLayer.addChild(chunkGrass);
                         }
 
-                        // Hide selection sprite in freelook mode
-                        if (selectSprite) {
-                            selectSprite.visible = isInteractable && hoveredTileX !== null && hoveredTileY !== null;
-                        }
+                        function render() {
+                            // Reset chunk count each frame
+                            chunksRendered = 0;
 
-                        render();
-                        renderOverlays();
+                            // Check if we crossed LOD threshold
+                            const currentLODState = camera.zoom < config.lodThreshold;
+                            if (lastLODState !== currentLODState) {
+                                // Clear all chunks when crossing LOD threshold
+                                for (const [key, containers] of chunkContainers.entries()) {
+                                    if (containers.dirt) {
+                                        dirtLayer.removeChild(containers.dirt);
+                                        containers.dirt.destroy();
+                                    }
+                                    if (containers.grass) {
+                                        grassLayer.removeChild(containers.grass);
+                                        containers.grass.destroy();
+                                    }
+                                }
+                                chunkContainers.clear();
+                                lastLODState = currentLODState;
+                            }
 
+                            // Calculate player chunk position (round to center player in chunk)
+                            const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
+                            const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
 
-                        // Transform world (camera system - center camera position on screen)
-                        // Reverted rounding to fix diagonal movement feel
-                        world.scale.set(camera.zoom);
-                        world.x = -camera.x * camera.zoom + app.screen.width / 2;
-                        world.y = -camera.y * camera.zoom + app.screen.height / 2;
+                            // Calculate visible bounds based on viewport
+                            const viewHalfW = (app.screen.width / camera.zoom) / 2;
+                            const viewHalfH = (app.screen.height / camera.zoom) / 2;
 
-                        // Crosshair Position Update (Screen Space)
-                        if (crosshairSprite) {
-                            crosshairSprite.x = app.screen.width / 2;
-                            crosshairSprite.y = app.screen.height / 2;
-                        }
+                            // Convert to chunk coordinates - limit to render distance from config
+                            const maxRenderDist = Math.min(config.renderDistance, 32); // Increased cap for Infinite World feel
 
-                        // Cursor is now updated in 'mousemove' listener for zero latency.
-                        // Removed game loop update to prevent fighting/jitter.
+                            // Calculate viewport-based chunk range
+                            // Increased pad (2 chunks) to prevent clipping of edge sprites (Dual Grid)
+                            let startChunkX = Math.floor((camera.x - viewHalfW) / (TILE_SIZE * CHUNK_SIZE)) - 2;
+                            let endChunkX = Math.ceil((camera.x + viewHalfW) / (TILE_SIZE * CHUNK_SIZE)) + 2;
+                            let startChunkY = Math.floor((camera.y - viewHalfH) / (TILE_SIZE * CHUNK_SIZE)) - 2;
+                            let endChunkY = Math.ceil((camera.y + viewHalfH) / (TILE_SIZE * CHUNK_SIZE)) + 2;
 
-                        // Process Dirty Chunks (Batch Rendering)
-                        if (dirtyChunks.size > 0 && renderChunk) {
-                            for (const key of dirtyChunks) {
-                                const [cx, cy] = key.split(',').map(Number);
-                                // Remove old container FIRST
-                                if (chunkContainers.has(key)) {
-                                    const containers = chunkContainers.get(key);
+                            // Also limit by render distance from player chunk
+                            const playerChunkXCenter = Math.floor(player.x / TILE_SIZE / CHUNK_SIZE);
+                            const playerChunkYCenter = Math.floor(player.y / TILE_SIZE / CHUNK_SIZE);
+                            startChunkX = Math.max(startChunkX, playerChunkXCenter - maxRenderDist);
+                            endChunkX = Math.min(endChunkX, playerChunkXCenter + maxRenderDist);
+                            startChunkY = Math.max(startChunkY, playerChunkYCenter - maxRenderDist);
+                            endChunkY = Math.min(endChunkY, playerChunkYCenter + maxRenderDist);
+
+                            // Determine which chunks should be visible
+                            const chunksToRender = new Set();
+                            for (let cy = startChunkY; cy <= endChunkY; cy++) {
+                                for (let cx = startChunkX; cx <= endChunkX; cx++) {
+                                    chunksToRender.add(`${cx},${cy}`);
+                                }
+                            }
+
+                            // Remove chunks that are out of range
+                            for (const [key, containers] of chunkContainers.entries()) {
+                                if (!chunksToRender.has(key)) {
                                     if (containers.dirt) {
                                         dirtLayer.removeChild(containers.dirt);
                                         containers.dirt.destroy({ children: true });
@@ -868,285 +1109,126 @@
                                     }
                                     chunkContainers.delete(key);
                                 }
-                                // Re-render
-                                renderChunk(cx, cy);
-                            }
-                            dirtyChunks.clear();
-                        }
-                    });
-
-                    // Render function - chunk-based with caching
-                    let lastLODState = camera.zoom < config.lodThreshold;
-
-                    // Chunk Rendering Function - assign to outer scope variable
-                    renderChunk = function (cx, cy) {
-                        const key = `${cx},${cy}`;
-                        const chunk = getChunk(cx, cy);
-                        const chunkDirt = new PIXI.Container();
-                        const chunkGrass = new PIXI.Container();
-
-                        // LOD: If zoomed out below threshold, render simple colored tiles (Minimap style)
-                        if (camera.zoom < config.lodThreshold) {
-                            const graphics = new PIXI.Graphics();
-
-                            // Draw each tile as a simple colored rectangle
-                            for (let ty = 0; ty < CHUNK_SIZE; ty++) {
-                                for (let tx = 0; tx < CHUNK_SIZE; tx++) {
-                                    const tileVal = chunk[ty][tx];
-                                    const color = tileVal === 1 ? avgGrassColor : avgDirtColor;
-
-                                    graphics.beginFill(color);
-                                    graphics.drawRect(
-                                        (cx * CHUNK_SIZE + tx) * TILE_SIZE,
-                                        (cy * CHUNK_SIZE + ty) * TILE_SIZE,
-                                        TILE_SIZE,
-                                        TILE_SIZE
-                                    );
-                                    graphics.endFill();
-                                }
                             }
 
-                            chunkDirt.addChild(graphics);
-                            chunkContainers.set(key, { dirt: chunkDirt, grass: chunkGrass });
+                            // Render new chunks (only if not already rendered)
+                            // Time Slicing Scale: More chunks if zoomed out
+                            const MAX_CHUNKS_PER_FRAME = Math.max(20, Math.floor(100 / Math.max(0.1, camera.zoom)));
+                            let chunksCreated = 0;
 
-                            dirtLayer.addChild(chunkDirt);
-
-                            return;
-                        }
-
-                        // Render all tiles in this chunk
-                        for (let ty = 0; ty < CHUNK_SIZE; ty++) {
-                            for (let tx = 0; tx < CHUNK_SIZE; tx++) {
-                                const worldX = cx * CHUNK_SIZE + tx;
-                                const worldY = cy * CHUNK_SIZE + ty;
-
-                                // Dirt tile -> Dirt Layer
-                                const dirtIdx = getDirtIdx(worldX, worldY);
-                                const dirtTexture = getTileTexture(dirtTex, dirtIdx);
-                                const dirtSprite = new PIXI.Sprite(dirtTexture);
-                                dirtSprite.x = worldX * TILE_SIZE;
-                                dirtSprite.y = worldY * TILE_SIZE;
-                                dirtSprite.width = TILE_SIZE;
-                                dirtSprite.height = TILE_SIZE;
-                                chunkDirt.addChild(dirtSprite);
-
-                                // Grass tile -> Grass Layer
-                                // Reverted to getTileSafe to PREVENT INFINITE RECURSION during rendering
-                                const hasGrass = getTileSafe(worldX, worldY) === 1 ||
-                                    getTileSafe(worldX + 1, worldY) === 1 ||
-                                    getTileSafe(worldX, worldY + 1) === 1 ||
-                                    getTileSafe(worldX + 1, worldY + 1) === 1;
-
-                                if (hasGrass) {
-                                    const grassIdx = getGrassIdx(worldX, worldY);
-                                    const grassTexture = getTileTexture(grassTex, grassIdx);
-                                    const grassSprite = new PIXI.Sprite(grassTexture);
-
-                                    // Aligned to White Grid (Dual Grid) - Use Center Anchor
-                                    grassSprite.anchor.set(0.5);
-                                    grassSprite.x = (worldX + 1) * TILE_SIZE;
-                                    grassSprite.y = (worldY + 1) * TILE_SIZE;
-
-                                    grassSprite.width = TILE_SIZE;
-                                    grassSprite.height = TILE_SIZE;
-                                    chunkGrass.addChild(grassSprite);
+                            // Loop through chunks (standard scanline order: top-to-bottom)
+                            for (const key of chunksToRender) {
+                                if (!chunkContainers.has(key)) {
+                                    if (chunksCreated < MAX_CHUNKS_PER_FRAME) {
+                                        const [cx, cy] = key.split(',').map(Number);
+                                        renderChunk(cx, cy);
+                                        chunksCreated++;
+                                    }
+                                    // If we hit limit, we just stop creating for this frame. 
+                                    // They will be picked up next frame.
                                 }
+                                chunksRendered++;
                             }
+
+                            // Update stats with active chunk count (rendered containers)
+                            const fps = Math.round(app.ticker.FPS);
+                            const activeChunks = chunkContainers.size;
+                            const cachedChunks = chunks.size;
+                            document.getElementById('info').textContent = `FPS: ${fps} | x: ${Math.floor(player.x)} y: ${Math.floor(player.y)} | Zoom: ${camera.zoom.toFixed(2)}x | Rendered: ${activeChunks} | Cached: ${cachedChunks}`;
                         }
 
-                        chunkContainers.set(key, { dirt: chunkDirt, grass: chunkGrass });
-                        dirtLayer.addChild(chunkDirt);
-                        grassLayer.addChild(chunkGrass);
-                    }
+                        // Render overlays (grid, highlights, etc) - called after chunk rendering
+                        let overlayGraphics = null;
 
-                    function render() {
-                        // Reset chunk count each frame
-                        chunksRendered = 0;
-
-                        // Check if we crossed LOD threshold
-                        const currentLODState = camera.zoom < config.lodThreshold;
-                        if (lastLODState !== currentLODState) {
-                            // Clear all chunks when crossing LOD threshold
-                            for (const [key, containers] of chunkContainers.entries()) {
-                                if (containers.dirt) {
-                                    dirtLayer.removeChild(containers.dirt);
-                                    containers.dirt.destroy();
+                        function renderOverlays() {
+                            // Skip overlay rendering entirely if grid is disabled (massive performance boost)
+                            if (!showGrid) {
+                                if (overlayGraphics) {
+                                    world.removeChild(overlayGraphics);
+                                    overlayGraphics.destroy();
+                                    overlayGraphics = null;
                                 }
-                                if (containers.grass) {
-                                    grassLayer.removeChild(containers.grass);
-                                    containers.grass.destroy();
-                                }
+                                return;
                             }
-                            chunkContainers.clear();
-                            lastLODState = currentLODState;
-                        }
 
-                        // Calculate player chunk position (round to center player in chunk)
-                        const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
-                        const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
-
-                        // Calculate visible bounds based on viewport
-                        const viewHalfW = (app.screen.width / camera.zoom) / 2;
-                        const viewHalfH = (app.screen.height / camera.zoom) / 2;
-
-                        // Convert to chunk coordinates - limit to render distance from config
-                        const maxRenderDist = Math.min(config.renderDistance, 32); // Increased cap for Infinite World feel
-
-                        // Calculate viewport-based chunk range
-                        let startChunkX = Math.floor((camera.x - viewHalfW) / (TILE_SIZE * CHUNK_SIZE)) - 1;
-                        let endChunkX = Math.ceil((camera.x + viewHalfW) / (TILE_SIZE * CHUNK_SIZE)) + 1;
-                        let startChunkY = Math.floor((camera.y - viewHalfH) / (TILE_SIZE * CHUNK_SIZE)) - 1;
-                        let endChunkY = Math.ceil((camera.y + viewHalfH) / (TILE_SIZE * CHUNK_SIZE)) + 1;
-
-                        // Also limit by render distance from player chunk
-                        const playerChunkXCenter = Math.floor(player.x / TILE_SIZE / CHUNK_SIZE);
-                        const playerChunkYCenter = Math.floor(player.y / TILE_SIZE / CHUNK_SIZE);
-                        startChunkX = Math.max(startChunkX, playerChunkXCenter - maxRenderDist);
-                        endChunkX = Math.min(endChunkX, playerChunkXCenter + maxRenderDist);
-                        startChunkY = Math.max(startChunkY, playerChunkYCenter - maxRenderDist);
-                        endChunkY = Math.min(endChunkY, playerChunkYCenter + maxRenderDist);
-
-                        // Determine which chunks should be visible
-                        const chunksToRender = new Set();
-                        for (let cy = startChunkY; cy <= endChunkY; cy++) {
-                            for (let cx = startChunkX; cx <= endChunkX; cx++) {
-                                chunksToRender.add(`${cx},${cy}`);
-                            }
-                        }
-
-                        // Remove chunks that are out of range
-                        for (const [key, containers] of chunkContainers.entries()) {
-                            if (!chunksToRender.has(key)) {
-                                if (containers.dirt) {
-                                    dirtLayer.removeChild(containers.dirt);
-                                    containers.dirt.destroy({ children: true });
-                                }
-                                if (containers.grass) {
-                                    grassLayer.removeChild(containers.grass);
-                                    containers.grass.destroy({ children: true });
-                                }
-                                chunkContainers.delete(key);
-                            }
-                        }
-
-                        // Render new chunks (only if not already rendered)
-                        // Time Slicing Scale: More chunks if zoomed out
-                        const MAX_CHUNKS_PER_FRAME = Math.max(20, Math.floor(100 / Math.max(0.1, camera.zoom)));
-                        let chunksCreated = 0;
-
-                        // Loop through chunks (standard scanline order: top-to-bottom)
-                        for (const key of chunksToRender) {
-                            if (!chunkContainers.has(key)) {
-                                if (chunksCreated < MAX_CHUNKS_PER_FRAME) {
-                                    const [cx, cy] = key.split(',').map(Number);
-                                    renderChunk(cx, cy);
-                                    chunksCreated++;
-                                }
-                                // If we hit limit, we just stop creating for this frame. 
-                                // They will be picked up next frame.
-                            }
-                            chunksRendered++;
-                        }
-
-                        // Update stats with active chunk count (rendered containers)
-                        const fps = Math.round(app.ticker.FPS);
-                        const activeChunks = chunkContainers.size;
-                        const cachedChunks = chunks.size;
-                        document.getElementById('info').textContent = `FPS: ${fps} | x: ${Math.floor(player.x)} y: ${Math.floor(player.y)} | Zoom: ${camera.zoom.toFixed(2)}x | Rendered: ${activeChunks} | Cached: ${cachedChunks}`;
-                    }
-
-                    // Render overlays (grid, highlights, etc) - called after chunk rendering
-                    let overlayGraphics = null;
-
-                    function renderOverlays() {
-                        // Skip overlay rendering entirely if grid is disabled (massive performance boost)
-                        if (!showGrid) {
+                            // Reuse graphics object (Performance Optimization)
                             if (overlayGraphics) {
-                                world.removeChild(overlayGraphics);
-                                overlayGraphics.destroy();
-                                overlayGraphics = null;
+                                overlayGraphics.clear();
+                            } else {
+                                overlayGraphics = new PIXI.Graphics();
                             }
-                            return;
-                        }
 
-                        // Reuse graphics object (Performance Optimization)
-                        if (overlayGraphics) {
-                            overlayGraphics.clear();
-                        } else {
-                            overlayGraphics = new PIXI.Graphics();
-                        }
+                            // 4. White visual grid (aligned with world grid) - ONLY IF GRID IS ON
+                            // Removing "Always Render" behavior to save FPS
+                            /*
+                           overlayGraphics.lineStyle(0.5, 0xffffff, 0.2);
+                            */
 
-                        // 4. White visual grid (aligned with world grid) - ONLY IF GRID IS ON
-                        // Removing "Always Render" behavior to save FPS
-                        /*
-                       overlayGraphics.lineStyle(0.5, 0xffffff, 0.2);
-                        */
+                            // Calculate visible area for grid (RESTORED for debug usage)
+                            const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
+                            const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
+                            const renderDistance = Math.min(5, Math.ceil(5 / Math.max(camera.zoom, 1.0)));
+                            const startX = (playerChunkX - renderDistance) * CHUNK_SIZE;
+                            const endX = (playerChunkX + renderDistance + 1) * CHUNK_SIZE;
+                            const startY = (playerChunkY - renderDistance) * CHUNK_SIZE;
+                            const endY = (playerChunkY + renderDistance + 1) * CHUNK_SIZE;
 
-                        // Calculate visible area for grid (RESTORED for debug usage)
-                        const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
-                        const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
-                        const renderDistance = Math.min(5, Math.ceil(5 / Math.max(camera.zoom, 1.0)));
-                        const startX = (playerChunkX - renderDistance) * CHUNK_SIZE;
-                        const endX = (playerChunkX + renderDistance + 1) * CHUNK_SIZE;
-                        const startY = (playerChunkY - renderDistance) * CHUNK_SIZE;
-                        const endY = (playerChunkY + renderDistance + 1) * CHUNK_SIZE;
+                            /*
+                            // ... [omitted expensive generic loop] ...
+                            for (let x = startX; x <= endX; x++) { ... }
+                            */
 
-                        /*
-                        // ... [omitted expensive generic loop] ...
-                        for (let x = startX; x <= endX; x++) { ... }
-                        */
-
-                        // Just use the debug loop below if needed.
+                            // Just use the debug loop below if needed.
 
 
-                        // Multi-layer DEBUG grid system (when G is pressed)
-                        if (showGrid) {
-                            // 1. Green shades for grass tiles
-                            for (let y = startY; y < endY; y++) {
-                                for (let x = startX; x < endX; x++) {
-                                    if (getTile(x, y) === 1) {
-                                        overlayGraphics.beginFill(0x00ff00, 0.1);
-                                        overlayGraphics.drawRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                                        overlayGraphics.endFill();
+                            // Multi-layer DEBUG grid system (when G is pressed)
+                            if (showGrid) {
+                                // 1. Green shades for grass tiles
+                                for (let y = startY; y < endY; y++) {
+                                    for (let x = startX; x < endX; x++) {
+                                        if (getTile(x, y) === 1) {
+                                            overlayGraphics.beginFill(0x00ff00, 0.1);
+                                            overlayGraphics.drawRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                                            overlayGraphics.endFill();
+                                        }
                                     }
                                 }
+
+                                // 2. Blue chunk boundaries
+                                overlayGraphics.lineStyle(2, 0x0000ff, 0.5);
+                                const chunkStartX = Math.floor(startX / CHUNK_SIZE) * CHUNK_SIZE;
+                                const chunkEndX = Math.ceil(endX / CHUNK_SIZE) * CHUNK_SIZE;
+                                const chunkStartY = Math.floor(startY / CHUNK_SIZE) * CHUNK_SIZE;
+                                const chunkEndY = Math.ceil(endY / CHUNK_SIZE) * CHUNK_SIZE;
+
+                                for (let x = chunkStartX; x <= chunkEndX; x += CHUNK_SIZE) {
+                                    overlayGraphics.moveTo(x * TILE_SIZE, chunkStartY * TILE_SIZE);
+                                    overlayGraphics.lineTo(x * TILE_SIZE, chunkEndY * TILE_SIZE);
+                                }
+                                for (let y = chunkStartY; y <= chunkEndY; y += CHUNK_SIZE) {
+                                    overlayGraphics.moveTo(chunkStartX * TILE_SIZE, y * TILE_SIZE);
+                                    overlayGraphics.lineTo(chunkEndX * TILE_SIZE, y * TILE_SIZE);
+                                }
+                                overlayGraphics.stroke(); // Make lines visible
+
+                                // 3. Red tile grid
+                                overlayGraphics.lineStyle(1, 0xff0000, 0.3);
+                                for (let x = startX; x <= endX; x++) {
+                                    overlayGraphics.moveTo(x * TILE_SIZE, startY * TILE_SIZE);
+                                    overlayGraphics.lineTo(x * TILE_SIZE, endY * TILE_SIZE);
+                                }
+                                for (let y = startY; y <= endY; y++) {
+                                    overlayGraphics.moveTo(startX * TILE_SIZE, y * TILE_SIZE);
+                                    overlayGraphics.lineTo(endX * TILE_SIZE, y * TILE_SIZE);
+                                }
                             }
 
-                            // 2. Blue chunk boundaries
-                            overlayGraphics.lineStyle(2, 0x0000ff, 0.5);
-                            const chunkStartX = Math.floor(startX / CHUNK_SIZE) * CHUNK_SIZE;
-                            const chunkEndX = Math.ceil(endX / CHUNK_SIZE) * CHUNK_SIZE;
-                            const chunkStartY = Math.floor(startY / CHUNK_SIZE) * CHUNK_SIZE;
-                            const chunkEndY = Math.ceil(endY / CHUNK_SIZE) * CHUNK_SIZE;
-
-                            for (let x = chunkStartX; x <= chunkEndX; x += CHUNK_SIZE) {
-                                overlayGraphics.moveTo(x * TILE_SIZE, chunkStartY * TILE_SIZE);
-                                overlayGraphics.lineTo(x * TILE_SIZE, chunkEndY * TILE_SIZE);
-                            }
-                            for (let y = chunkStartY; y <= chunkEndY; y += CHUNK_SIZE) {
-                                overlayGraphics.moveTo(chunkStartX * TILE_SIZE, y * TILE_SIZE);
-                                overlayGraphics.lineTo(chunkEndX * TILE_SIZE, y * TILE_SIZE);
-                            }
                             overlayGraphics.stroke(); // Make lines visible
 
-                            // 3. Red tile grid
-                            overlayGraphics.lineStyle(1, 0xff0000, 0.3);
-                            for (let x = startX; x <= endX; x++) {
-                                overlayGraphics.moveTo(x * TILE_SIZE, startY * TILE_SIZE);
-                                overlayGraphics.lineTo(x * TILE_SIZE, endY * TILE_SIZE);
-                            }
-                            for (let y = startY; y <= endY; y++) {
-                                overlayGraphics.moveTo(startX * TILE_SIZE, y * TILE_SIZE);
-                                overlayGraphics.lineTo(endX * TILE_SIZE, y * TILE_SIZE);
-                            }
+                            overlayGraphics.zIndex = 2000; // Ensure overlays are on top of chunks (zIndex 0) and selection (zIndex 1000)
+                            world.addChild(overlayGraphics);
                         }
-
-                        overlayGraphics.stroke(); // Make lines visible
-
-                        overlayGraphics.zIndex = 2000; // Ensure overlays are on top of chunks (zIndex 0) and selection (zIndex 1000)
-                        world.addChild(overlayGraphics);
-                    }
-                });
+                    });
             } // End initGame function
         }); // End window.addEventListener
     </script>

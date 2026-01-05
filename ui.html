@@ -4,270 +4,197 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UI System Prototype</title>
+    <title>UI Library (Inline)</title>
     <style>
-        :root {
-            --border-size: 24px;
-            /* Must match border-image-width */
-            --corner-radius: 12px;
-            /* Approximate inner curve if needed */
-        }
-
         body {
-            background-color: #222;
+            /* Real Background so you can see Blur */
             background-image: url('Assets/Image/Tile/grass.png');
-            background-repeat: repeat;
-            background-size: 64px 64px;
-            /* Adjust scale as needed */
+            background-size: 64px;
+            image-rendering: pixelated;
             margin: 0;
             overflow: hidden;
+            font-family: monospace;
+            background-color: #222;
         }
 
-        /* JS Noise generator removed in favor of texture */
+        /* Prevent Selection */
+        .ui-frame,
+        button,
+        h2 {
+            user-select: none;
+        }
 
-        /*
-           The Container controls the size and holds the border-image.
-           It does NOT have the blur itself, to avoid blurring outside the border.
-        */
-        /* 
-           The Container controls the size and holds the border-image.
-           It does NOT have the blur itself, to avoid blurring outside the border.
-        */
+        /* UI FRAME: The Simplest "One Element" Solution */
         .ui-frame {
             position: absolute;
-            /* Changed to absolute for dragging */
-            /* Start at a fixed position to avoid translate jumping */
-            top: 100px;
-            left: 100px;
-
-            width: 400px;
-            height: 300px;
-
-            /* The 9-Slice Border */
-            border: var(--border-size) solid transparent;
-            /* Default to the USER'S image (even with red pixels) so they know it loaded */
-            border-image-source: url('Assets/Image/frame.png');
-            border-image-slice: 16;
-            border-image-width: var(--border-size);
-            border-image-repeat: stretch;
-
-            padding: 20px;
             box-sizing: border-box;
             color: white;
-            cursor: move;
-            /* Indicate draggable */
-            user-select: none;
-            /* Prevent text selection while dragging */
+            /* text-shadow: removed per user request */
+            --border-size: 16px;
 
-            /* Stacking Context Fix */
-            z-index: 100;
-            isolation: isolate;
+            /* 1. Blur the Middle (Standard size, no bleeding) */
+            backdrop-filter: blur(3px);
+            -webkit-backdrop-filter: blur(3px);
+
+            /* 2. Vignette (Tint close to edge) */
+            /* Adjusted: Visible but Cool/Gradual (40px blur, 10% opacity) */
+            box-shadow: inset 0 0 40px rgba(255, 255, 255, 0.1);
+
+            /* Filter Removed from Container to protect Text */
         }
 
-        /* 
-           The Blur Zone
-           Now uses CSS MASKS to restrict the blur to exactly the shape of the "Red Area".
-           We use 'mask-border' (or -webkit-mask-box-image) to 9-slice the mask 
-           just like the frame border-image.
-        */
-        .ui-blur-zone {
+        /* BORDER LAYER (::before) - Isolated for Shader */
+        .ui-frame::before {
+            content: "";
             position: absolute;
-            /* Fill the entire element to extend into the border area */
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            z-index: -1;
-            pointer-events: auto;
-            /* Capture clicks for dragging (bubbles to parent) */
+            inset: 0;
+            z-index: 2;
+            pointer-events: none;
 
-            /* The Blur Effect */
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            /* background-color: rgba(0, 0, 0, 0.3); REMOVED TINT */
+            border: var(--border-size) solid transparent;
+            border-image: url('Assets/Image/frame.png') 16 / var(--border-size) repeat;
 
-            /* The Mask Logic (9-Slice Mask) */
-            /* We start with placeholder, JS upgrades it to the generated mask */
-            -webkit-mask-box-image-source: url('Assets/Image/frame.png');
-            -webkit-mask-box-image-slice: 16 fill;
-            -webkit-mask-box-image-width: var(--border-size);
-            -webkit-mask-box-image-repeat: stretch;
-
-            /* Standard property */
-            mask-border-source: url('Assets/Image/frame.png');
-            mask-border-slice: 16 fill;
-            mask-border-width: var(--border-size);
-            mask-border-repeat: stretch;
-
-            /* Expand to cover the border area */
-            margin: calc(var(--border-size) * -1);
+            /* 3. RED SCREEN SHADER (SVG Filter) - Applied ONLY to Border */
+            filter: url(#remove-red);
         }
 
-        .ui-inner {
-            position: relative;
-            z-index: 1;
-            /* Above blur */
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            pointer-events: auto;
-            /* Capture clicks for dragging */
-        }
-
-        /* Re-enable pointer events for interactive children */
-        .btn,
-        h2,
-        p {
-            pointer-events: auto;
-        }
-
-        /* Text Styles */
-        h2 {
-            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
-            padding-bottom: 10px;
-            margin-top: 0;
-            text-align: center;
-        }
-
-        .btn {
-            margin-top: auto;
-            padding: 10px;
-            background: #555;
-            border: 2px solid #fff;
-            cursor: pointer;
-            color: white;
-            transition: 0.2s;
-        }
-
-        .btn:hover {
-            background: #777;
-        }
-
-        .ui-frame.placeholder-mode {
-            border: 4px solid #888;
-            border-image: none;
-        }
+        /* REMOVED Button Styles (User requested) */
     </style>
 </head>
 
 <body>
+    <!-- SVG SHADER: The "Green Screen" logic for HTML -->
+    <svg width="0" height="0" style="position: absolute;">
+        <filter id="remove-red">
+            <feColorMatrix type="matrix" values="
+                1 0 0 0 0  
+                0 1 0 0 0  
+                0 0 1 0 0  
+                -1 1 1 1 0" />
+        </filter>
+    </svg>
 
-    <div id="warnBanner" style="display:none; background:red; color:white; padding:10px; text-align:center;"></div>
-
-    <!-- UI Component Example -->
-    <div class="ui-frame" id="testFrame">
-        <!-- Masked Blur Layer -->
-        <div class="ui-blur-zone" id="blurLayer"></div>
-
-        <!-- Actual UI Elements -->
-        <div class="ui-inner">
-            <h2>Inventory</h2>
-            <p>Item: <strong>Lazor Pickaxe</strong></p>
-            <p>Durability: 9000/9001</p>
-            <p><i>"A shiny tool for a shiny person."</i></p>
-            <button class="btn">Close</button>
-        </div>
-    </div>
-
+    <!-- UI SYSTEM -->
     <script>
-        // --- Dragging Logic ---
-        const uiFrame = document.getElementById('testFrame');
-        let isDragging = false;
-        let dragOffsetX = 0;
-        let dragOffsetY = 0;
+        const UI = {
+            config: {
+                borderSize: 16, // Tileset is 48x48 (16px tiles)
+            },
 
-        uiFrame.addEventListener('mousedown', (e) => {
-            if (e.target.tagName === 'BUTTON') return;
-            e.preventDefault();
-            isDragging = true;
-            const rect = uiFrame.getBoundingClientRect();
-            dragOffsetX = e.clientX - rect.left;
-            dragOffsetY = e.clientY - rect.top;
-            uiFrame.style.transform = 'none';
-            uiFrame.style.left = rect.left + 'px';
-            uiFrame.style.top = rect.top + 'px';
-            uiFrame.style.bottom = 'auto';
-            uiFrame.style.right = 'auto';
-        });
+            init: function () {
+                const fontFace = new FontFace('Minecraft', 'url(Assets/Font/pixel.ttf)');
+                fontFace.load().then(function (loadedFont) {
+                    document.fonts.add(loadedFont);
+                    document.body.style.fontFamily = 'Minecraft, monospace';
+                    document.body.style.webkitFontSmoothing = 'none';
+                    document.body.style.mozOsxFontSmoothing = 'grayscale';
+                });
+                console.log("UI: Active (SVG Shader Mode)");
+            },
 
-        window.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            uiFrame.style.left = (e.clientX - dragOffsetX) + 'px';
-            uiFrame.style.top = (e.clientY - dragOffsetY) + 'px';
-        });
+            createWindow: function (title, x, y, width, height) {
+                const frame = document.createElement('div');
+                frame.className = 'ui-frame';
+                // Set sizes and dynamic variables
+                Object.assign(frame.style, {
+                    left: x + 'px', top: y + 'px',
+                    width: width + 'px', height: height + 'px',
+                });
+                frame.style.setProperty('--border-size', this.config.borderSize + 'px');
 
-        window.addEventListener('mouseup', () => {
-            isDragging = false;
-        });
+                // Content Container (Above Glass, Below Border)
+                const inner = document.createElement('div');
+                Object.assign(inner.style, {
+                    position: 'relative', zIndex: '1', height: '100%',
+                    display: 'flex', flexDirection: 'column'
+                });
+                frame.appendChild(inner);
 
-        // --- Simplified Red Key Logic (Clean & Minimal) ---
-        const frameUrl = 'Assets/Image/frame.png';
-        const img = new Image();
-        img.src = frameUrl;
-
-        img.onload = function () {
-            const w = img.width;
-            const h = img.height;
-            const sliceSize = Math.floor(Math.min(w, h) / 3);
-
-            console.log(`Processing Red Key... ${w}x${h}`);
-
-            const frameEl = document.getElementById('testFrame');
-            const blurEl = document.getElementById('blurLayer');
-
-            // Canvas 1: Visual Frame (Red -> Transparent)
-            const cFrame = document.createElement('canvas');
-            cFrame.width = w; cFrame.height = h;
-            const ctxFrame = cFrame.getContext('2d');
-            ctxFrame.drawImage(img, 0, 0);
-
-            // Canvas 2: Blur Mask (Red -> Opaque White, Else -> Transparent)
-            const cMask = document.createElement('canvas');
-            cMask.width = w; cMask.height = h;
-            const ctxMask = cMask.getContext('2d');
-            const maskData = ctxMask.createImageData(w, h); // Starts empty
-            const mData = maskData.data;
-
-            const frameData = ctxFrame.getImageData(0, 0, w, h);
-            const fData = frameData.data;
-
-            for (let i = 0; i < fData.length; i += 4) {
-                const r = fData[i], g = fData[i + 1], b = fData[i + 2];
-
-                // Check for RED (Red > 200, others low)
-                if (r > 200 && g < 50 && b < 50) {
-                    // IT IS RED:
-                    // 1. Remove from Visual Frame (make transparent hole)
-                    fData[i + 3] = 0;
-
-                    // 2. Add to Blur Mask (make visible -> Opaque White)
-                    mData[i] = 255; mData[i + 1] = 255; mData[i + 2] = 255; mData[i + 3] = 255;
+                if (title) {
+                    const h2 = document.createElement('h2');
+                    h2.innerText = title;
+                    h2.style.borderBottom = '1px solid rgba(255,255,255,0.2)';
+                    h2.style.textAlign = 'center';
+                    h2.style.width = '100%';
+                    h2.style.margin = '0';
+                    h2.style.padding = '8px 0 2px 0'; // Reduced bottom padding per user request
+                    inner.appendChild(h2);
                 }
-                // ELSE: Border Pixel
-                // Visual Frame: Must match original pixel exactly
-                // Blur Mask: Must be Transparent
+
+                this._makeDraggable(frame);
+                document.body.appendChild(frame);
+                inner.parentFrame = frame;
+                return inner;
+            },
+
+            addButton: function (parent, text, onClick) {
+                const btn = document.createElement('div');
+                btn.className = 'ui-btn';
+                btn.style.height = '32px';
+                btn.style.setProperty('--btn-border', '16px');
+
+                const label = document.createElement('span');
+                label.innerText = text;
+                label.style.zIndex = '2';
+                label.style.pointerEvents = 'none';
+                btn.appendChild(label);
+
+                btn.onclick = function (e) {
+                    e.stopPropagation();
+                    onClick();
+                };
+
+                parent.appendChild(btn);
+                return btn;
+            },
+
+            addLabel: function (parent, html) {
+                const p = document.createElement('p');
+                p.innerHTML = html;
+                p.style.margin = '4px 12px';
+                p.style.fontSize = '14px';
+                p.style.lineHeight = '1.5';
+                parent.appendChild(p);
+            },
+
+            _makeDraggable: function (el) {
+                let isDragging = false;
+                let startX, startY, initialLeft, initialTop;
+
+                el.onmousedown = function (e) {
+                    if (e.target.className === 'ui-btn' || e.target.onclick) return;
+                    isDragging = true;
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    initialLeft = el.offsetLeft;
+                    initialTop = el.offsetTop;
+                    el.style.cursor = 'grabbing';
+                };
+
+                document.onmousemove = function (e) {
+                    if (!isDragging) return;
+                    const dx = e.clientX - startX;
+                    const dy = e.clientY - startY;
+                    el.style.left = (initialLeft + dx) + 'px';
+                    el.style.top = (initialTop + dy) + 'px';
+                };
+
+                document.onmouseup = function () {
+                    isDragging = false;
+                    el.style.cursor = 'default';
+                };
             }
-
-            // Apply changes
-            ctxFrame.putImageData(frameData, 0, 0);
-            ctxMask.putImageData(maskData, 0, 0);
-
-            // Apply to DOM
-            // FRAME: Use modified image. NO 'fill' needed.
-            frameEl.style.borderImage = `url(${cFrame.toDataURL()}) ${sliceSize} / var(--border-size) stretch`;
-
-            // MASK: Use generated mask. NEEDS 'fill' to cover the center.
-            const maskVal = `url(${cMask.toDataURL()}) ${sliceSize} fill / var(--border-size) stretch`;
-
-            blurEl.style.display = 'block';
-            blurEl.style.webkitMaskBoxImage = maskVal;
-            blurEl.style.maskBorder = maskVal;
-
-            // Pure Blur
-            blurEl.style.backgroundColor = 'transparent';
-            blurEl.style.backdropFilter = 'blur(10px)';
-            blurEl.style.webkitBackdropFilter = 'blur(10px)';
         };
+    </script>
+
+    <!-- Main Logic Script -->
+    <script>
+        UI.init();
+        const win = UI.createWindow("Window", 100, 100, 400, 300);
+        UI.addLabel(win, "Item: <strong>Lazor Pickaxe</strong>");
+        UI.addLabel(win, "Durability: 9000/9001");
+        UI.addLabel(win, "<i>'A shiny tool for a shiny person.'</i>");
+        // Buttons removed per user request
     </script>
 </body>
 
