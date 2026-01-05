@@ -40,3 +40,10 @@ let pressedKeys = new Set();
 
 // Texture Caches
 const globalTextureCache = new Map();
+
+// PIXI Globals (Initialized in index.html)
+let app;
+let world;
+let dirtLayer;
+let grassLayer;
+let renderChunk = null;

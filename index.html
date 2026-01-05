@@ -127,7 +127,8 @@
             PIXI.TextureSource.defaultOptions.scaleMode = 'nearest';
 
             // PixiJS App (v8 requires await)
-            const app = new PIXI.Application();
+            // PixiJS App (using global 'app' from variables.js)
+            app = new PIXI.Application();
             await app.init({
                 width: window.innerWidth,
                 height: window.innerHeight,
@@ -154,14 +155,16 @@
 
 
             // World container
-            const world = new PIXI.Container();
+            // World container (global 'world')
+            world = new PIXI.Container();
             world.sortableChildren = true; // Enable z-index sorting for world (tiles/players)
             app.stage.sortableChildren = true; // Enable z-index sorting for stage (UI/Crosshair)
             app.stage.addChild(world);
 
             // Layers for Z-sorting (Fixes "cutoff" grass/half tiles)
-            const dirtLayer = new PIXI.Container();
-            const grassLayer = new PIXI.Container();
+            // Layers for Z-sorting (global 'dirtLayer', 'grassLayer')
+            dirtLayer = new PIXI.Container();
+            grassLayer = new PIXI.Container();
             world.addChild(dirtLayer);
             world.addChild(grassLayer);
 
@@ -183,8 +186,8 @@
             // const dirtyChunks = new Set();
             // let chunksRendered = 0;
 
-            // renderChunk function reference - defined inside Promise.all().then() but accessed by setTile
-            let renderChunk = null;
+            // renderChunk function reference (defined below, declared in variables.js)
+            // let renderChunk = null; (Global)
 
             // Simple Perlin-like noise
             function noise2D(x, y) {
@@ -749,11 +752,13 @@
                                 const res = await fetch(`${SERVER_URL}/status`);
                                 const status = await res.json();
                                 connected = true;
-                                loadingTitle.innerText = "Connected to World Server!";
-                                loadingText.innerText = `Server Online: ${status.chunks.toLocaleString()} Chunks Available`;
+                                connected = true;
+                                loadingTitle.innerText = "Rendering Chunks"; // Simplified Success Message
+                                loadingText.innerText = `Connected. ${status.chunks} Chunks Ready.`;
                                 loadingBar.style.width = '100%';
                             } catch (e) {
-                                loadingText.innerText = "Waiting for Java Server... (Run 'java Main')";
+                                loadingTitle.innerText = "Connecting..."; // Simplified Waiting Message
+                                loadingText.innerText = "Waiting for Server...";
                                 await new Promise(r => setTimeout(r, 1000));
                             }
                         }
