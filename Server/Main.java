@@ -11,10 +11,10 @@ public class Main {
     public static void main(String[] args) throws IOException {
         System.out.println("Tyls.io");
 
-        // Preload chunks to reduce runtime lag (User Request: 2^20 Chunks)
+        // Preload chunks (User Request: 2^20 Chunks)
         System.out.println("Loading World...");
-        preloadChunks(512); // Generates 1,048,576 chunks (1024x1024)
-        System.out.println("Ready! (Loaded " + chunkCache.size() + " chunks)");
+        preloadChunks(512);
+        System.out.println(chunkCache.size() + "/1048576");
 
         try (ServerSocket server = new ServerSocket(25565)) {
             while (true) {
