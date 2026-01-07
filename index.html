@@ -814,9 +814,12 @@
                             }
 
                             loadingTitle.innerText = "Rendering Chunks...";
-                            loadingText.innerText = `(${loadedCount} / ${expectedChunks})`;
+                            // Cap display at 100% to avoid confusion
+                            const displayCount = Math.min(loadedCount, expectedChunks);
+                            loadingText.innerText = `(${displayCount} / ${expectedChunks})`;
 
-                            if (loadedCount >= expectedChunks && pendingChunks.size === 0) {
+                            // Start immediately if we have enough chunks (Ignore pending request stragglers)
+                            if (loadedCount >= expectedChunks) {
                                 clearInterval(checkLoaded);
 
                                 const loading = document.getElementById('loading');
