@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>tyls.io - Game Tweaker</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #4CAF50;
+            margin-bottom: 10px;
+        }
+
+        .section {
+            background: #2a2a2a;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            border: 1px solid #444;
+        }
+
+        .section h2 {
+            margin-top: 0;
+            color: #64B5F6;
+            font-size: 18px;
+        }
+
+        .control {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #aaa;
+            font-size: 14px;
+        }
+
+        input[type="number"],
+        input[type="text"],
+        textarea {
+            width: 100%;
+            padding: 8px;
+            background: #1a1a1a;
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+
+        textarea {
+            min-height: 150px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            resize: vertical;
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        button.secondary {
+            background: #2196F3;
+        }
+
+        button.secondary:hover {
+            background: #0b7dda;
+        }
+
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            background: #333;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #4CAF50;
+        }
+
+        #pasteArea {
+            width: 100%;
+            min-height: 200px;
+            background: #1a1a1a;
+            border: 2px dashed #555;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            outline: none;
+        }
+
+        #pasteArea:focus {
+            border-color: #4CAF50;
+        }
+
+        #pastePreview {
+            max-width: 100%;
+            max-height: 400px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>tyls.io - Game Tweaker</h1>
+        <p style="color: #888;">Tweak game variables and save notes</p>
+
+        <div class="section">
+            <h2>Game Variables</h2>
+            <div class="control">
+                <label>Player Speed (pixels/sec)</label>
+                <input type="number" id="playerSpeed" value="200" step="10">
+            </div>
+            <div class="control">
+                <label>Default Zoom</label>
+                <input type="number" id="defaultZoom" value="3.0" step="0.1" min="0.1" max="10">
+            </div>
+            <div class="control">
+                <label>Min Zoom</label>
+                <input type="number" id="minZoom" value="0.1" step="0.1" min="0.1">
+            </div>
+            <div class="control">
+                <label>Max Zoom</label>
+                <input type="number" id="maxZoom" value="10" step="1" min="1">
+            </div>
+            <div class="control">
+                <label>Chunk Size (tiles)</label>
+                <input type="number" id="chunkSize" value="16" step="1" min="8">
+            </div>
+            <div class="control">
+                <label>Base Render Distance (chunks)</label>
+                <input type="number" id="renderDistance" value="5" step="1" min="1">
+            </div>
+            <div class="control">
+                <label>LOD Threshold (zoom level)</label>
+                <input type="number" id="lodThreshold" value="1.0" step="0.1" min="0.1">
+            </div>
+            <div class="control">
+                <label>Max Chunks Per Frame (Render Budget)</label>
+                <input type="number" id="maxChunksPerFrame" value="10" step="1" min="1">
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Paste Image Here</h2>
+            <p style="color: #888; font-size: 13px;">Click the box and press Ctrl+V to paste a screenshot</p>
+            <div id="pasteArea" tabindex="0">
+                <div id="pastePrompt" style="text-align: center; color: #888;">
+                    Click here and press Ctrl+V<br>
+                    <span style="font-size: 12px;">to paste an image</span>
+                </div>
+                <img id="pastePreview" style="display: none;">
+            </div>
+            <div class="status" id="pasteStatus" style="display: none;"></div>
+        </div>
+
+        <div class="section">
+            <h2>Development Notes</h2>
+            <textarea id="notes" placeholder="Write your notes, ideas, and todos here..."></textarea>
+        </div>
+
+        <div class="section">
+            <button onclick="saveConfig()">Save Config</button>
+            <button class="secondary" onclick="loadConfig()">Load Config</button>
+            <button class="secondary" onclick="resetConfig()">Reset to Defaults</button>
+            <div class="status" id="status">Ready</div>
+        </div>
+    </div>
+
+    <script>
+        const defaultConfig = {
+            playerSpeed: 200,
+            defaultZoom: 3.0,
+            minZoom: 0.1,
+            maxZoom: 10,
+            chunkSize: 16,
+            renderDistance: 5,
+            lodThreshold: 1.0,
+            notes: ''
+        };
+
+        let pastedImage = null;
+
+        // Paste functionality
+        const pasteArea = document.getElementById('pasteArea');
+        const pastePreview = document.getElementById('pastePreview');
+        const pastePrompt = document.getElementById('pastePrompt');
+        const pasteStatus = document.getElementById('pasteStatus');
+
+        pasteArea.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const items = e.clipboardData.items;
+
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    const blob = items[i].getAsFile();
+                    const reader = new FileReader();
+
+                    reader.onload = (event) => {
+                        pastedImage = event.target.result;
+                        pastePreview.src = pastedImage;
+                        pastePreview.style.display = 'block';
+                        pastePrompt.style.display = 'none';
+                        pasteStatus.style.display = 'block';
+                        pasteStatus.textContent = 'Image pasted! Now take a screenshot of this page and share it with me in chat.';
+                    };
+
+                    reader.readAsDataURL(blob);
+                    break;
+                }
+            }
+        });
+
+        pasteArea.addEventListener('click', () => {
+            pasteArea.focus();
+        });
+
+        function saveConfig() {
+            const config = {
+                playerSpeed: parseFloat(document.getElementById('playerSpeed').value),
+                defaultZoom: parseFloat(document.getElementById('defaultZoom').value),
+                minZoom: parseFloat(document.getElementById('minZoom').value),
+                maxZoom: parseFloat(document.getElementById('maxZoom').value),
+                chunkSize: parseInt(document.getElementById('chunkSize').value),
+                renderDistance: parseInt(document.getElementById('renderDistance').value),
+                lodThreshold: parseFloat(document.getElementById('lodThreshold').value),
+                notes: document.getElementById('notes').value
+            };
+
+            localStorage.setItem('tylsio_config', JSON.stringify(config));
+
+            const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'config.json';
+            a.click();
+            URL.revokeObjectURL(url);
+
+            document.getElementById('status').textContent = 'Config saved! Download config.json';
+        }
+
+        function loadConfig() {
+            const saved = localStorage.getItem('tylsio_config');
+            if (saved) {
+                const config = JSON.parse(saved);
+                applyConfig(config);
+                document.getElementById('status').textContent = 'Config loaded';
+            } else {
+                document.getElementById('status').textContent = 'No saved config found';
+            }
+        }
+
+        function resetConfig() {
+            applyConfig(defaultConfig);
+            document.getElementById('status').textContent = 'Reset to defaults';
+        }
+
+        function applyConfig(config) {
+            document.getElementById('playerSpeed').value = config.playerSpeed;
+            document.getElementById('defaultZoom').value = config.defaultZoom;
+            document.getElementById('minZoom').value = config.minZoom;
+            document.getElementById('maxZoom').value = config.maxZoom;
+            document.getElementById('chunkSize').value = config.chunkSize;
+            document.getElementById('renderDistance').value = config.renderDistance;
+            document.getElementById('lodThreshold').value = config.lodThreshold;
+            document.getElementById('notes').value = config.notes || '';
+        }
+
+        window.addEventListener('load', () => {
+            loadConfig();
+        });
+
+        setInterval(() => {
+            const config = {
+                playerSpeed: parseFloat(document.getElementById('playerSpeed').value),
+                defaultZoom: parseFloat(document.getElementById('defaultZoom').value),
+                minZoom: parseFloat(document.getElementById('minZoom').value),
+                maxZoom: parseFloat(document.getElementById('maxZoom').value),
+                chunkSize: parseInt(document.getElementById('chunkSize').value),
+                renderDistance: parseInt(document.getElementById('renderDistance').value),
+                lodThreshold: parseFloat(document.getElementById('lodThreshold').value),
+                notes: document.getElementById('notes').value
+            };
+            localStorage.setItem('tylsio_config', JSON.stringify(config));
+        }, 5000);
+    </script>
+</body>
+
+</html>

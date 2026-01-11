@@ -1,0 +1,6 @@
+world.db
+*.class
+*.log
+*.ctxt
+.DS_Store
+Server\*.class
