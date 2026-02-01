@@ -4,8 +4,8 @@
   "minZoom": 0.1,
   "maxZoom": 50,
   "chunkSize": 16,
-  "renderDistance": 8,
+  "renderDistance": 32,
   "lodThreshold": 0.8,
-  "maxChunksPerFrame": 5,
+  "maxChunksPerFrame": 20,
   "notes": ""
 }

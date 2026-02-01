@@ -1,10 +1,13 @@
 package Server;
 
+import org.java_websocket.server.WebSocketServer;
+import org.java_websocket.WebSocket;
+import org.java_websocket.handshake.ClientHandshake;
 import java.io.*;
 import java.net.*;
 import java.nio.file.*;
 import java.sql.*;
-import java.util.Random;
+import java.util.*;
 
 public class Main {
     private static final int CHUNK_SIZE = 16;
@@ -13,7 +16,74 @@ public class Main {
 
     // Async Progress Tracking
     private static volatile boolean isWorldReady = false;
-    private static volatile int genProgress = 0;
+
+    // WebSocket Server Inner Class
+    public static class GameWebSocketServer extends WebSocketServer {
+        public GameWebSocketServer(int port) {
+            super(new InetSocketAddress(port));
+        }
+
+        @Override
+        public void onOpen(WebSocket conn, ClientHandshake handshake) {
+            System.out.println("New connection: " + conn.getRemoteSocketAddress());
+        }
+
+        @Override
+        public void onClose(WebSocket conn, int code, String reason, boolean remote) {
+            System.out.println("Closed connection: " + conn.getRemoteSocketAddress());
+        }
+
+        @Override
+        public void onMessage(WebSocket conn, String message) {
+            // Simple generic JSON parser since we don't have a library
+            // We look for "type":"value"
+            String type = extractJsonString(message, "type");
+
+            if ("pos".equals(type)) {
+                // Broadcast to others
+                broadcast(message);
+            } else if ("getChunk".equals(type)) {
+                // Handle Chunk Request: {"type":"getChunk", "key":"0,0", "x":0, "y":0}
+                String key = extractJsonString(message, "key");
+                if (key == null)
+                    return;
+
+                // key is "x,y", split it
+                String[] parts = key.split(",");
+                int cx = Integer.parseInt(parts[0]);
+                int cy = Integer.parseInt(parts[1]);
+
+                String chunkData = getOrGenerateChunk(cx, cy);
+
+                // Send back: {"type":"chunk", "key":"...", "data":"..."}
+                // We construct JSON manually
+                String response = "{\"type\":\"chunk\", \"key\":\"" + key + "\", \"data\":\"" + chunkData + "\"}";
+                conn.send(response);
+            } else if ("save".equals(type)) {
+                // Handle Save: {"type":"save", "player":{...}, "chunks":[...]}
+                try {
+                    int count = saveDataInternal(message);
+                    conn.send("{\"type\":\"saveAck\", \"count\":" + count + "}");
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    conn.send("{\"type\":\"error\", \"message\":\"Save failed\"}");
+                }
+            } else {
+                // Legacy support or unknown
+                // broadcast(message);
+            }
+        }
+
+        @Override
+        public void onError(WebSocket conn, Exception ex) {
+            ex.printStackTrace();
+        }
+
+        @Override
+        public void onStart() {
+            System.out.println("WebSocket Server started on port: " + getPort());
+        }
+    }
 
     public static void main(String[] args) {
         // Initialize Database
@@ -24,6 +94,10 @@ public class Main {
             e.printStackTrace();
             return;
         }
+
+        // Start WebSocket Server
+        GameWebSocketServer wsServer = new GameWebSocketServer(25566);
+        wsServer.start();
 
         try (Connection conn = DriverManager.getConnection(DB_URL);
                 Statement stmt = conn.createStatement()) {
@@ -51,7 +125,7 @@ public class Main {
             } else {
                 System.out.println("World loaded from database: " + count + " chunks");
                 isWorldReady = true;
-                genProgress = 100;
+
             }
 
             System.out.println("Database: Ready");
@@ -144,7 +218,6 @@ public class Main {
                     conn.commit();
                     System.out.println("\rProgress: 100% - Done!");
                     isWorldReady = true;
-                    genProgress = 100;
 
                 } catch (SQLException e) {
                     conn.rollback();
@@ -236,84 +309,7 @@ public class Main {
 
     private static void handleSaveRequest(String body, OutputStream out) throws IOException {
         try {
-            int savedCount = 0;
-
-            try (Connection conn = DriverManager.getConnection(DB_URL)) {
-                conn.setAutoCommit(false);
-
-                // 1. Save Player Position
-                // Expected JSON: {"player":{"x":123,"y":456}, "chunks":[...]}
-                int playerIdx = body.indexOf("\"player\":");
-                if (playerIdx != -1) {
-                    try (PreparedStatement pstmt = conn.prepareStatement(
-                            "INSERT OR REPLACE INTO metadata(key, value) VALUES(?, ?)")) {
-
-                        // Simple parse for x and y
-                        // Look for "x":123
-                        int xStart = body.indexOf("\"x\":", playerIdx) + 4;
-                        int xEnd = body.indexOf(",", xStart);
-                        // Handle case where it might be "x": 123 (space)
-                        while (body.charAt(xEnd) == ' ' || body.charAt(xEnd) == '}')
-                            xEnd--; // cleanup logic?
-                        // Simpler: Just parse until non-digit/dot? JSON is strict.
-                        // Let's rely on comma or closing brace
-                        int yStart = body.indexOf("\"y\":", playerIdx) + 4;
-                        int yEnd = body.indexOf("}", yStart);
-
-                        // Re-eval parsing strategy:
-                        // "x":123.45, "y":...
-                        String xStr = extractJsonValue(body, "\"x\":", playerIdx).trim();
-                        String yStr = extractJsonValue(body, "\"y\":", playerIdx).trim();
-
-                        pstmt.setString(1, "player_x");
-                        pstmt.setString(2, xStr);
-                        pstmt.addBatch();
-
-                        pstmt.setString(1, "player_y");
-                        pstmt.setString(2, yStr);
-                        pstmt.addBatch();
-
-                        pstmt.executeBatch();
-                    }
-                }
-
-                // 2. Save Chunks
-                try (PreparedStatement pstmt = conn.prepareStatement(
-                        "INSERT OR REPLACE INTO chunks(id, data) VALUES(?, ?)")) {
-
-                    // Find all chunk entries
-                    int idx = body.indexOf("\"chunks\""); // Start searching after "chunks"
-                    if (idx == -1)
-                        idx = 0;
-
-                    while ((idx = body.indexOf("\"key\":", idx)) != -1) {
-                        // Extract key
-                        int keyStart = body.indexOf("\"", idx + 6) + 1;
-                        int keyEnd = body.indexOf("\"", keyStart);
-                        String key = body.substring(keyStart, keyEnd);
-
-                        // Extract data
-                        int dataIdx = body.indexOf("\"data\":", keyEnd);
-                        int dataStart = body.indexOf("\"", dataIdx + 7) + 1;
-                        int dataEnd = body.indexOf("\"", dataStart);
-                        String data = body.substring(dataStart, dataEnd);
-
-                        // Unescape \\n to \n for storage - REMOVED to keep consistency with PreGen
-                        // data = data.replace("\\n", "\n");
-
-                        pstmt.setString(1, key);
-                        pstmt.setString(2, data);
-                        pstmt.addBatch();
-                        savedCount++;
-
-                        idx = dataEnd;
-                    }
-
-                    pstmt.executeBatch();
-                    conn.commit();
-                }
-            }
-
+            int savedCount = saveDataInternal(body);
             System.out.println("Saved " + savedCount + " chunks + player data");
             sendResponse(out, 200, "{\"saved\":" + savedCount + "}", "application/json");
 
@@ -321,6 +317,93 @@ public class Main {
             e.printStackTrace();
             sendResponse(out, 500, "{\"error\":\"Save failed\"}", "application/json");
         }
+    }
+
+    // Extracted logic for reuse in WebSocket
+    private static int saveDataInternal(String body) throws SQLException {
+        int savedCount = 0;
+
+        try (Connection conn = DriverManager.getConnection(DB_URL)) {
+            conn.setAutoCommit(false);
+
+            // 1. Save Player Position
+            // Expected JSON: ... "player":{"x":123,"y":456} ...
+            int playerIdx = body.indexOf("\"player\":");
+            if (playerIdx != -1) {
+                try (PreparedStatement pstmt = conn.prepareStatement(
+                        "INSERT OR REPLACE INTO metadata(key, value) VALUES(?, ?)")) {
+
+                    // "x":123.45, "y":...
+                    String xStr = extractJsonValue(body, "\"x\":", playerIdx).trim();
+                    String yStr = extractJsonValue(body, "\"y\":", playerIdx).trim();
+
+                    pstmt.setString(1, "player_x");
+                    pstmt.setString(2, xStr);
+                    pstmt.addBatch();
+
+                    pstmt.setString(1, "player_y");
+                    pstmt.setString(2, yStr);
+                    pstmt.addBatch();
+
+                    pstmt.executeBatch();
+                }
+            }
+
+            // 2. Save Chunks
+            try (PreparedStatement pstmt = conn.prepareStatement(
+                    "INSERT OR REPLACE INTO chunks(id, data) VALUES(?, ?)")) {
+
+                // Find all chunk entries
+                int idx = body.indexOf("\"chunks\""); // Start searching after "chunks"
+                if (idx == -1)
+                    idx = 0;
+
+                while ((idx = body.indexOf("\"key\":", idx)) != -1) {
+                    // Extract key
+                    String key = extractJsonString(body, "key", idx);
+
+                    // We need to advance idx manually to find data relative to this key
+                    // Let's look for "data" AFTER the key
+                    int keyPosInStr = body.indexOf(key, idx); // Approximate position
+
+                    int dataIdx = body.indexOf("\"data\":", keyPosInStr);
+                    String data = extractJsonString(body, "data", dataIdx - 1); // allow some slack?
+                    // Actually extractJsonString looks forward from startIdx.
+                    // Let's use the robust manual parsing from before but wrapped?
+
+                    // Reverting to the robust loop manually because extractJsonString
+                    // might be too simple for nested structures if not careful.
+                    // But actually, let's just copy the robust loop logic back here
+                    // but cleaner if possible.
+                    // For now, I will preserve the original logic structure which was working.
+
+                    int keyStart = body.indexOf("\"", idx + 6) + 1;
+                    int keyEnd = body.indexOf("\"", keyStart);
+                    // String key = body.substring(keyStart, keyEnd); // Already have this from
+                    // extract?
+                    // Let's just stick to the indices logic which was proven (mostly).
+
+                    // re-parsing using the indices logic:
+                    key = body.substring(keyStart, keyEnd);
+
+                    int dIdx = body.indexOf("\"data\":", keyEnd);
+                    int dStart = body.indexOf("\"", dIdx + 7) + 1;
+                    int dEnd = body.indexOf("\"", dStart);
+                    data = body.substring(dStart, dEnd);
+
+                    pstmt.setString(1, key);
+                    pstmt.setString(2, data);
+                    pstmt.addBatch();
+                    savedCount++;
+
+                    idx = dEnd;
+                }
+
+                pstmt.executeBatch();
+                conn.commit();
+            }
+        }
+        return savedCount;
     }
 
     private static String extractJsonValue(String json, String key, int startIdx) {
@@ -335,6 +418,27 @@ public class Main {
                 break;
             valEnd++;
         }
+        return json.substring(valStart, valEnd);
+    }
+
+    // New Helper for extracting string values "key":"value"
+    private static String extractJsonString(String json, String key) {
+        return extractJsonString(json, key, 0);
+    }
+
+    private static String extractJsonString(String json, String key, int startIdx) {
+        // Look for "key":"
+        String search = "\"" + key + "\":";
+        int k = json.indexOf(search, startIdx);
+        if (k == -1)
+            return null;
+
+        int valStart = json.indexOf("\"", k + search.length()) + 1;
+        int valEnd = json.indexOf("\"", valStart);
+
+        if (valStart == 0 || valEnd == -1)
+            return null; // Not found
+
         return json.substring(valStart, valEnd);
     }
 
@@ -434,12 +538,10 @@ public class Main {
     private static int[][] generateChunkPerlin(int cx, int cy) {
         int[][] chunk = new int[CHUNK_SIZE][CHUNK_SIZE];
 
-        // Use user requested "Spiral" for spawn?
-        // Actually, let's just use Perlin for everything, but maybe clear the center?
+        // Safe spawn zone in center
         double distFromCenter = Math.sqrt(cx * cx + cy * cy);
         if (distFromCenter < 2) {
-            // Safe Spawn (Empty)
-            return chunk; // All 0
+            return chunk; // All 0 (dirt only, safe spawn)
         }
 
         for (int y = 0; y < CHUNK_SIZE; y++) {
@@ -447,27 +549,30 @@ public class Main {
                 double worldX = cx * CHUNK_SIZE + x;
                 double worldY = cy * CHUNK_SIZE + y;
 
-                // Scale controls zoom. 0.05 is "zoomed in", 0.1 is "noisy"
-                // Using different scales for "octaves"
-                double val = getNoise(worldX * 0.05, worldY * 0.05) * 1.0 +
-                        getNoise(worldX * 0.01, worldY * 0.01) * 2.0;
+                // Multi-octave Perlin for more natural terrain
+                // Large scale features (continents/islands)
+                double large = getNoise(worldX * 0.02, worldY * 0.02) * 1.0;
+                // Medium scale features (hills/valleys)
+                double medium = getNoise(worldX * 0.05, worldY * 0.05) * 0.5;
+                // Small details
+                double small = getNoise(worldX * 0.1, worldY * 0.1) * 0.25;
 
-                // Threshold
-                chunk[y][x] = val > 0.2 ? 1 : 0;
+                double val = large + medium + small;
+
+                // Threshold - grass if above 0.1
+                chunk[y][x] = val > 0.1 ? 1 : 0;
             }
         }
         return chunk;
     }
 
-    // Convert 2D int array to "1010\n0101" String
+    // Convert 2D int array to flat "101010..." String (256 chars, no newlines)
     private static String chunkToString(int[][] chunk) {
         StringBuilder sb = new StringBuilder();
         for (int r = 0; r < chunk.length; r++) {
             for (int c = 0; c < chunk[r].length; c++) {
                 sb.append(chunk[r][c]);
             }
-            if (r < chunk.length - 1)
-                sb.append("\\n"); // Use literal \n for JSON string safety
         }
         return sb.toString();
     }
@@ -489,6 +594,10 @@ public class Main {
             return "application/json";
         if (path.endsWith(".ttf"))
             return "font/ttf";
+        if (path.endsWith(".wasm"))
+            return "application/wasm";
+        if (path.endsWith(".db") || path.endsWith(".sqlite"))
+            return "application/x-sqlite3";
         return "application/octet-stream";
     }
 

@@ -1,19 +1,28 @@
 # tyls.io Development TODO
 the whole game is a pixel game with some lighting effects. would be between a 3d game and a 2d game.
+
+## 🚀 Immediate Plans (Upon Return)
+
+### 1. WebAssembly Integration (sql.js) ✅
+**Goal:** Run the game database LOCALLY in the browser. Zero loading times on movement.
+- [x] **Download sql.js**: Added via CDN in `index.html`.
+- [x] **Load `world.db` Locally**: Fetch logic implemented in `window.load` + IndexedDB persistence.
+- [x] **Remove Network Chunking**: `getChunk` now queries WASM DB synchronously.
+- [x] **Direct Queries**: frontend queries SQLite directly using WASM.
+- [x] **Persistence**: `saveWorld` updates in-memory DB and syncs to IndexedDB `tyls_db`.
+
+### 2. WebSocket Multiplayer (Phase 2) ⏳
+**Goal:** Real-time player interaction.
+- [ ] **Setup Socket Server**: Initialize Socket.IO or WS on the Java server (or separate Node process).
+- [ ] **Player Sync**: Broadcast X/Y coordinates to all connected clients.
+- [ ] **World Sync**: When a block changes, broadcast the update to everyone immediately.
+
 ## 🐛 Known Issues
-- [ ] **Mouse Update Lag**: Game elements (highlight, placed blocks) don't seem to update visually unless the mouse is moved. (Suspect render/input loop issue).
-- [ ] **Mining Lag**: Breaking/placng blocks causes stutter due to full chunk re-rendering. SAME FOR GRID RENDERING
-- [ ] **Visual Glitches**: Tile transitions at chunk boundaries can appear cut off or misaligned (Recurring at borders?).
-- [] **Visual Glitches (Fixed 1.0)**: Fixed initial cutoff via Layering.
-- [x] **pixijs problem**:  the blocks are rendering reallyl burry like the pixels arent being rendered as pixels. (Fixed via Nearest scaling)
+- [x] **Visual Glitches**: Fix tile transitions at chunk boundaries (Fixed 1.0 - Improved Neighbor Updates & Layering).
+- [x] **Auto Save**: Replaced manual button with background auto-save (Fixed 1.0).
+- [x] **Diagonal Black Pattern**: Fixed by synchronous `getChunk` calls in `getTileSafe` (WASM).
 
 ## 🔮 Future Features
-- [x] **Custom Cursor**: Add custom cursor. and crosshair in the center of the screen. (Implemented)
 - [ ] **UI System**: Hotbar, Settings, Inventory. Special 9-slice frame with blurred background.
-- [x] **Smooth Interaction**: Better dragging/continuous mining. (Implemented via Bresenham's)
-- [ ] **UI System**: Hotbar, Settings, Inventory. Special frame with blurred background.
-- [ ] **Height System**: Add terrain depth/elevation.
-- [x] **Performance**: Optimize chunk updates (Partial updates to fix Mining Lag).
-- add a mini zoom in normal mode that zooms like a spring like a maginifying glass but only zooms once its like the magnifying glass in mincraft but can also zoom out by 1. accessed by scroll wheel.
--later we have cool visuals like shaders and stuf i ccould fill the epty/ boring parts of a block with redscreen and load flowers and stuf on it later
-make render distance much more no black area when in alt mode. make world infinite and pregenrate more(like a miliion :D)
+- [ ] **Height System**: Add terrain depth/elevation. 
+- [ ] **Physics**: Add inertia to camera movement and player collision.

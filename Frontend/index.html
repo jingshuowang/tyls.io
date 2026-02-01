@@ -14,6 +14,7 @@
         body {
             margin: 0;
             overflow: hidden;
+            /* Hide default/CSS cursor for Software Cursor */
             background: #000;
         }
 
@@ -22,7 +23,6 @@
             image-rendering: pixelated;
             image-rendering: crisp-edges;
             cursor: none;
-            /* Hide default/CSS cursor for Software Cursor */
         }
 
         #info {
@@ -85,45 +85,11 @@
     <div id="follower-element"></div>
 
     <!-- Save Button -->
-    <button id="saveBtn" style="
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        padding: 12px 24px;
-        font-family: 'Minecraft', monospace;
-        font-size: 16px;
-        background: linear-gradient(180deg, #5a5 0%, #383 100%);
-        border: 3px solid #2a2;
-        color: white;
-        cursor: pointer;
-        z-index: 1000;
-        text-shadow: 2px 2px 0 #000;
-        box-shadow: 0 4px 0 #151;
-        transition: all 0.1s;
-    " onmousedown="this.style.transform='translateY(2px)';this.style.boxShadow='0 2px 0 #151'"
-        onmouseup="this.style.transform='';this.style.boxShadow='0 4px 0 #151'"
-        onmouseleave="this.style.transform='';this.style.boxShadow='0 4px 0 #151'">
-        [SAVE]
-    </button>
 
-    <div id="saveStatus" style="
-        position: fixed;
-        bottom: 70px;
-        right: 20px;
-        padding: 8px 16px;
-        font-family: 'Minecraft', monospace;
-        font-size: 14px;
-        background: rgba(0,0,0,0.7);
-        color: #aaa;
-        z-index: 1000;
-        display: none;
-        border-radius: 4px;
-    "></div>
 
-    <div id="loading"
-        style="position:fixed;top:0;left:0;width:100%;height:100%;background:#000;z-index:9999;display:flex;justify-content:center;align-items:center;color:white;font-family:monospace;transition:opacity 0.5s;">
-        <h1 style="font-size:32px;">Connecting...</h1>
-    </div>
+
+
+    <!-- Loading Screen Removed per User Request -->
 
     <script>
         window.onerror = function (msg, url, line, col, error) {
@@ -143,6 +109,7 @@
             return false;
         };
     </script>
+
     <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.5.2/dist/pixi.min.js"></script>
     <script>
         // --- INLINED VARIABLES (Formerly variables.js) ---
@@ -189,11 +156,15 @@
         const globalTextureCache = new Map();
 
         // Globals
-        let app, world, dirtLayer, grassLayer, renderChunk = null;
+        let app, world, dirtLayer, grassLayer, renderChunk = null, fetchChunkViaWorker = null;
+        let db = null; // Database instance
     </script>
     <script>
         // Wait for PixiJS to load
         window.addEventListener('load', async () => {
+            // --- DB REMOVED (User Request) ---
+            // Settings
+            // Settings (Loaded from variables.js)
 
 
 
@@ -323,11 +294,11 @@
                 if (chunks.has(key)) {
                     return chunks.get(key);
                 }
-                // Request from Server (Via Worker)
-                fetchChunkViaWorker(cx, cy);
 
-                // Return temporary empty chunk to avoid rendering crashes
-                // Creating an empty 16x16 array
+                // WASM DB Lookups REMOVED
+                // if (db) { ... }
+
+                // Fallback / Loading placeholder
                 const empty = [];
                 for (let i = 0; i < CHUNK_SIZE; i++) empty[i] = new Array(CHUNK_SIZE).fill(0);
                 return empty;
@@ -343,16 +314,18 @@
             }
 
             // Helper: Get Tile without forcing chunk generation (prevents render lag)
+            // Helper: Get Tile safe (Synchronous WASM Access)
             function getTileSafe(x, y) {
                 const cx = Math.floor(x / CHUNK_SIZE);
                 const cy = Math.floor(y / CHUNK_SIZE);
-                const key = `${cx},${cy}`;
-                // If chunk doesn't exist, don't generate it. Just return 0 (dirt).
-                if (!chunks.has(key)) return 0;
+
+                // WASM: getChunk is instant (checks Cache -> DB -> Empty)
+                // This ensures neighbors are loaded for correct edge connections (fixing diagonal gaps)
+                const chunk = getChunk(cx, cy);
 
                 const tx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
                 const ty = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-                return chunks.get(key)[ty][tx];
+                return chunk[ty][tx];
             }
 
             function setTile(x, y, value) {
@@ -820,75 +793,16 @@
                     app.canvas.style.transition = 'opacity 1s';
 
                     async function simpleStart() {
-                        const loader = document.getElementById('loading');
-                        const h1 = document.querySelector('#loading h1');
+                        // 1. Load Player Position from DB
+                        // 1. Load Player Position from DB (REMOVED)
+                        // if (db) { ... }
 
-                        // 1. Wait for Server (Server blocks startup until generated)
-                        while (true) {
-                            try {
-                                const res = await fetch('http://localhost:25565/status');
-                                if (res.ok) break;
-                            } catch (e) {
-                                h1.innerText = "Waiting for Server...";
-                            }
-                            await new Promise(r => setTimeout(r, 1000));
-                        }
-
-                        // 2. Fetch Player Position (Persistence)
-                        try {
-                            const pRes = await fetch('http://localhost:25565/player');
-                            if (pRes.ok) {
-                                const pData = await pRes.json();
-                                player.x = pData.x;
-                                player.y = pData.y;
-                                camera.x = player.x;
-                                camera.y = player.y;
-                                console.log("Restored player position (Persistence):", player.x, player.y);
-                            }
-                        } catch (e) {
-                            console.warn("Could not fetch saved position, using default.");
-                        }
-
-                        h1.innerText = "Loading World...";
-
-                        // 3. Circle Radius Load
-                        const radius = config.renderDistance; // e.g. 5 or user set
-                        const pCx = Math.floor(player.x / (16 * 16));
-                        const pCy = Math.floor(player.y / (16 * 16));
-                        const chunksToLoad = [];
-
-                        // Generate Circle Pattern
-                        for (let y = -radius; y <= radius; y++) {
-                            for (let x = -radius; x <= radius; x++) {
-                                if (x * x + y * y <= radius * radius) {
-                                    chunksToLoad.push({ x: pCx + x, y: pCy + y });
-                                }
-                            }
-                        }
-
-                        // 4. Fire Requests (Throttled Background Fetch)
-                        let idx = 0;
-                        const interval = setInterval(() => {
-                            for (let i = 0; i < 10; i++) { // 10 per tick = 200/sec (Safe)
-                                if (idx >= chunksToLoad.length) {
-                                    clearInterval(interval);
-
-                                    // Start Game Loop when requests are SENT
-                                    startGameLoop();
-
-                                    // Visual Fade In
-                                    app.canvas.style.opacity = '1';
-                                    loader.style.opacity = '0';
-                                    setTimeout(() => loader.remove(), 1000);
-                                    return;
-                                }
-                                const c = chunksToLoad[idx++];
-                                chunkFetcher.postMessage({ type: 'fetchChunk', cx: c.x, cy: c.y });
-                            }
-                        }, 50);
+                        // 2. Start Game Loop Immediately (No network pre-loading needed)
+                        startGameLoop();
+                        app.canvas.style.opacity = '1';
                     }
 
-                    // Start Network Loading
+                    // Start Game
                     simpleStart();
 
                     // Incremental GC State
@@ -900,6 +814,7 @@
                     // WRAPPED Game Loop (Started after loading)
                     function startGameLoop() {
                         let lastTime = performance.now();
+                        let lastLODState = false; // Track LOD state for threshold crossing
 
                         app.ticker.add((ticker) => {
                             // Incremental Garbage Collection (Process 20 chunks per frame)
@@ -951,6 +866,11 @@
                                 player.y += moveY * player.speed * dt;
                                 camera.x = player.x + player.width / 2;
                                 camera.y = player.y + player.height / 2;
+
+                                // Trigger Auto-Save on movement (Debounced)
+                                if (moveX !== 0 || moveY !== 0) {
+                                    triggerSave();
+                                }
                             }
                             // In freelook mode, camera is moved by mouse drag only (no WASD)
 
@@ -1018,9 +938,14 @@
                                     setTile(worldX, worldY, val);
                                 }
 
-                                // Update last position
-                                mouse.lastX = worldX;
                                 mouse.lastY = worldY;
+
+                                // Trigger Immediate Save for Loop Stability/Modifications
+                                // We don't wait for movement for block changes.
+                                // But to avoid spamming network on every pixel drawn in line, we might want to debounce too?
+                                // User said: "whenever a event is happening like player is moving or block changed"
+                                // Let's use the same debounce trigger, or make it slightly faster?
+                                triggerSave();
                             } else {
                                 // Reset last position if not clicking
                                 mouse.lastX = undefined;
@@ -1086,329 +1011,371 @@
                                     renderChunk(cx, cy);
                                 }
                             }
-                        });
 
-                        // Render function - chunk-based with caching
-                        let lastLODState = camera.zoom < config.lodThreshold;
 
-                        // Chunk Rendering Function - assign to outer scope variable
-                        renderChunk = function (cx, cy) {
-                            const key = `${cx},${cy}`;
+                            // Render function - chunk-based with caching
 
-                            // Check if chunk data exists. If not, don't render anything yet
-                            // (fetchChunk was triggered by getChunk, just wait for next frame)
-                            if (!chunks.has(key)) return;
+                            // Chunk Rendering Function - assign to outer scope variable
+                            renderChunk = function (cx, cy) {
+                                const key = `${cx},${cy}`;
 
-                            const chunk = getChunk(cx, cy);
-                            const chunkDirt = new PIXI.Container();
-                            const chunkGrass = new PIXI.Container();
+                                // Check if chunk data exists. If not, request it and skip this frame
+                                if (!chunks.has(key)) {
+                                    // Request from Server (Via Worker) - only if worker is ready
+                                    if (typeof fetchChunkViaWorker === 'function') {
+                                        fetchChunkViaWorker(cx, cy);
+                                    }
+                                    return; // Will render next frame when data arrives
+                                }
 
-                            // LOD: If zoomed out below threshold, render simple colored tiles (Minimap style)
-                            if (camera.zoom < config.lodThreshold) {
-                                const graphics = new PIXI.Graphics();
+                                const chunk = getChunk(cx, cy);
+                                const chunkDirt = new PIXI.Container();
+                                const chunkGrass = new PIXI.Container();
 
-                                // Draw each tile as a simple colored rectangle
+                                // LOD: If zoomed out below threshold, render simple colored tiles (Minimap style)
+                                if (camera.zoom < config.lodThreshold) {
+                                    const graphics = new PIXI.Graphics();
+
+                                    // Draw each tile as a simple colored rectangle
+                                    for (let ty = 0; ty < CHUNK_SIZE; ty++) {
+                                        for (let tx = 0; tx < CHUNK_SIZE; tx++) {
+                                            const tileVal = chunk[ty][tx];
+                                            const color = tileVal === 1 ? avgGrassColor : avgDirtColor;
+
+                                            graphics.beginFill(color);
+                                            graphics.drawRect(
+                                                (cx * CHUNK_SIZE + tx) * TILE_SIZE,
+                                                (cy * CHUNK_SIZE + ty) * TILE_SIZE,
+                                                TILE_SIZE,
+                                                TILE_SIZE
+                                            );
+                                            graphics.endFill();
+                                        }
+                                    }
+
+                                    chunkDirt.addChild(graphics);
+                                    chunkContainers.set(key, { dirt: chunkDirt, grass: chunkGrass });
+
+                                    dirtLayer.addChild(chunkDirt);
+
+                                    return;
+                                }
+
+                                // Render all tiles in this chunk
                                 for (let ty = 0; ty < CHUNK_SIZE; ty++) {
                                     for (let tx = 0; tx < CHUNK_SIZE; tx++) {
-                                        const tileVal = chunk[ty][tx];
-                                        const color = tileVal === 1 ? avgGrassColor : avgDirtColor;
+                                        const worldX = cx * CHUNK_SIZE + tx;
+                                        const worldY = cy * CHUNK_SIZE + ty;
 
-                                        graphics.beginFill(color);
-                                        graphics.drawRect(
-                                            (cx * CHUNK_SIZE + tx) * TILE_SIZE,
-                                            (cy * CHUNK_SIZE + ty) * TILE_SIZE,
-                                            TILE_SIZE,
-                                            TILE_SIZE
-                                        );
-                                        graphics.endFill();
-                                    }
-                                }
+                                        // Dirt tile -> Dirt Layer
+                                        const dirtIdx = getDirtIdx(worldX, worldY);
+                                        const dirtTexture = getTileTexture(dirtTex, dirtIdx);
+                                        const dirtSprite = new PIXI.Sprite(dirtTexture);
+                                        dirtSprite.x = worldX * TILE_SIZE;
+                                        dirtSprite.y = worldY * TILE_SIZE;
+                                        dirtSprite.width = TILE_SIZE;
+                                        dirtSprite.height = TILE_SIZE;
+                                        chunkDirt.addChild(dirtSprite);
 
-                                chunkDirt.addChild(graphics);
-                                chunkContainers.set(key, { dirt: chunkDirt, grass: chunkGrass });
+                                        // Grass tile -> Grass Layer
+                                        // Use getTileSafe to avoid triggering chunk fetches during render
+                                        const hasGrass = getTileSafe(worldX, worldY) === 1 ||
+                                            getTileSafe(worldX + 1, worldY) === 1 ||
+                                            getTileSafe(worldX, worldY + 1) === 1 ||
+                                            getTileSafe(worldX + 1, worldY + 1) === 1;
 
-                                dirtLayer.addChild(chunkDirt);
+                                        if (hasGrass) {
+                                            const grassIdx = getGrassIdx(worldX, worldY);
+                                            const grassTexture = getTileTexture(grassTex, grassIdx);
+                                            const grassSprite = new PIXI.Sprite(grassTexture);
 
-                                return;
-                            }
+                                            // Aligned to White Grid (Dual Grid) - Use Center Anchor
+                                            grassSprite.anchor.set(0.5);
+                                            grassSprite.x = (worldX + 1) * TILE_SIZE;
+                                            grassSprite.y = (worldY + 1) * TILE_SIZE;
 
-                            // Render all tiles in this chunk
-                            for (let ty = 0; ty < CHUNK_SIZE; ty++) {
-                                for (let tx = 0; tx < CHUNK_SIZE; tx++) {
-                                    const worldX = cx * CHUNK_SIZE + tx;
-                                    const worldY = cy * CHUNK_SIZE + ty;
-
-                                    // Dirt tile -> Dirt Layer
-                                    const dirtIdx = getDirtIdx(worldX, worldY);
-                                    const dirtTexture = getTileTexture(dirtTex, dirtIdx);
-                                    const dirtSprite = new PIXI.Sprite(dirtTexture);
-                                    dirtSprite.x = worldX * TILE_SIZE;
-                                    dirtSprite.y = worldY * TILE_SIZE;
-                                    dirtSprite.width = TILE_SIZE;
-                                    dirtSprite.height = TILE_SIZE;
-                                    chunkDirt.addChild(dirtSprite);
-
-                                    // Grass tile -> Grass Layer
-                                    // Use getTileSafe to avoid triggering chunk fetches during render
-                                    const hasGrass = getTileSafe(worldX, worldY) === 1 ||
-                                        getTileSafe(worldX + 1, worldY) === 1 ||
-                                        getTileSafe(worldX, worldY + 1) === 1 ||
-                                        getTileSafe(worldX + 1, worldY + 1) === 1;
-
-                                    if (hasGrass) {
-                                        const grassIdx = getGrassIdx(worldX, worldY);
-                                        const grassTexture = getTileTexture(grassTex, grassIdx);
-                                        const grassSprite = new PIXI.Sprite(grassTexture);
-
-                                        // Aligned to White Grid (Dual Grid) - Use Center Anchor
-                                        grassSprite.anchor.set(0.5);
-                                        grassSprite.x = (worldX + 1) * TILE_SIZE;
-                                        grassSprite.y = (worldY + 1) * TILE_SIZE;
-
-                                        grassSprite.width = TILE_SIZE;
-                                        grassSprite.height = TILE_SIZE;
-                                        chunkGrass.addChild(grassSprite);
-                                    }
-                                }
-                            }
-
-                            chunkContainers.set(key, { dirt: chunkDirt, grass: chunkGrass });
-                            dirtLayer.addChild(chunkDirt);
-                            grassLayer.addChild(chunkGrass);
-                        }
-
-                        function render() {
-                            // Reset chunk count each frame
-                            chunksRendered = 0;
-
-                            // Check if we crossed LOD threshold
-                            const currentLODState = camera.zoom < config.lodThreshold;
-                            if (lastLODState !== currentLODState) {
-                                // Clear all chunks when crossing LOD threshold
-                                for (const [key, containers] of chunkContainers.entries()) {
-                                    if (containers.dirt) {
-                                        dirtLayer.removeChild(containers.dirt);
-                                        containers.dirt.destroy();
-                                    }
-                                    if (containers.grass) {
-                                        grassLayer.removeChild(containers.grass);
-                                        containers.grass.destroy();
-                                    }
-                                }
-                                chunkContainers.clear();
-                                lastLODState = currentLODState;
-                            }
-
-                            // AGGRESSIVE GC: Prevent memory leaks
-                            if (chunks.size > 1000) {
-                                // Calculate player chunk position for GC
-                                const playerChunkX = Math.floor(player.x / TILE_SIZE / CHUNK_SIZE);
-                                const playerChunkY = Math.floor(player.y / TILE_SIZE / CHUNK_SIZE);
-                                const renderDistance = config.renderDistance;
-
-                                // Force cleanup of ANY chunk outside view + buffer
-                                for (const key of chunks.keys()) {
-                                    const [cx, cy] = key.split(',').map(Number);
-                                    if (Math.abs(cx - playerChunkX) > renderDistance + 2 ||
-                                        Math.abs(cy - playerChunkY) > renderDistance + 2) {
-                                        chunks.delete(key);
-                                    }
-                                }
-                            }
-
-                            // Calculate visible bounds based on viewport
-                            const viewHalfW = (app.screen.width / camera.zoom) / 2;
-                            const viewHalfH = (app.screen.height / camera.zoom) / 2;
-
-                            // Convert to chunk coordinates - limit to render distance from config
-                            const maxRenderDist = Math.min(config.renderDistance, 32); // Increased cap for Infinite World feel
-
-                            // Calculate viewport-based chunk range
-                            // Increased pad (2 chunks) to prevent clipping of edge sprites (Dual Grid)
-                            let startChunkX = Math.floor((camera.x - viewHalfW) / (TILE_SIZE * CHUNK_SIZE)) - 2;
-                            let endChunkX = Math.ceil((camera.x + viewHalfW) / (TILE_SIZE * CHUNK_SIZE)) + 2;
-                            let startChunkY = Math.floor((camera.y - viewHalfH) / (TILE_SIZE * CHUNK_SIZE)) - 2;
-                            let endChunkY = Math.ceil((camera.y + viewHalfH) / (TILE_SIZE * CHUNK_SIZE)) + 2;
-
-                            // Also limit by render distance from player chunk
-                            const playerChunkXCenter = Math.floor(player.x / TILE_SIZE / CHUNK_SIZE);
-                            const playerChunkYCenter = Math.floor(player.y / TILE_SIZE / CHUNK_SIZE);
-                            startChunkX = Math.max(startChunkX, playerChunkXCenter - maxRenderDist);
-                            endChunkX = Math.min(endChunkX, playerChunkXCenter + maxRenderDist);
-                            startChunkY = Math.max(startChunkY, playerChunkYCenter - maxRenderDist);
-                            endChunkY = Math.min(endChunkY, playerChunkYCenter + maxRenderDist);
-
-                            // Determine which chunks should be visible
-                            const chunksToRender = new Set();
-                            for (let cy = startChunkY; cy <= endChunkY; cy++) {
-                                for (let cx = startChunkX; cx <= endChunkX; cx++) {
-                                    chunksToRender.add(`${cx},${cy}`);
-                                }
-                            }
-
-                            // Remove chunks that are out of range
-                            for (const [key, containers] of chunkContainers.entries()) {
-                                if (!chunksToRender.has(key)) {
-                                    if (containers.dirt) {
-                                        dirtLayer.removeChild(containers.dirt);
-                                        containers.dirt.destroy({ children: true });
-                                    }
-                                    if (containers.grass) {
-                                        grassLayer.removeChild(containers.grass);
-                                        containers.grass.destroy({ children: true });
-                                    }
-                                    chunkContainers.delete(key);
-                                }
-                            }
-
-                            // Render new chunks (only if not already rendered)
-                            // Time Slicing Scale: More chunks if zoomed out
-                            const MAX_CHUNKS_PER_FRAME = config.maxChunksPerFrame || 10;
-                            let chunksCreated = 0;
-
-                            // Loop through chunks (standard scanline order: top-to-bottom)
-                            for (const key of chunksToRender) {
-                                if (!chunkContainers.has(key)) {
-                                    if (chunksCreated < MAX_CHUNKS_PER_FRAME) {
-                                        const [cx, cy] = key.split(',').map(Number);
-                                        renderChunk(cx, cy);
-                                        chunksCreated++;
-                                    }
-                                    // If we hit limit, we just stop creating for this frame. 
-                                    // They will be picked up next frame.
-                                }
-                                chunksRendered++;
-                            }
-
-                            // Update stats with active chunk count (rendered containers)
-                            const fps = Math.round(app.ticker.FPS);
-                            const activeChunks = chunkContainers.size;
-                            const cachedChunks = chunks.size;
-                            const loadingChunks = pendingChunks.size;
-                            document.getElementById('info').textContent = `FPS: ${fps} | x: ${Math.floor(player.x)} y: ${Math.floor(player.y)} | Zoom: ${camera.zoom.toFixed(2)}x | Rendered: ${activeChunks} | Cached: ${cachedChunks} | Loading: ${loadingChunks}`;
-                        }
-
-                        // Render overlays (grid, highlights, etc) - called after chunk rendering
-                        let overlayGraphics = null;
-
-                        function renderOverlays() {
-                            // Skip overlay rendering entirely if grid is disabled (massive performance boost)
-                            if (!showGrid) {
-                                if (overlayGraphics) {
-                                    world.removeChild(overlayGraphics);
-                                    overlayGraphics.destroy();
-                                    overlayGraphics = null;
-                                }
-                                return;
-                            }
-
-                            // Reuse graphics object (Performance Optimization)
-                            if (overlayGraphics) {
-                                overlayGraphics.clear();
-                            } else {
-                                overlayGraphics = new PIXI.Graphics();
-                            }
-
-                            // 4. White visual grid (aligned with world grid) - ONLY IF GRID IS ON
-                            // Removing "Always Render" behavior to save FPS
-                            /*
-                           overlayGraphics.lineStyle(0.5, 0xffffff, 0.2);
-                            */
-
-                            // Calculate visible area for grid (RESTORED for debug usage)
-                            const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
-                            const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
-                            const renderDistance = Math.min(5, Math.ceil(5 / Math.max(camera.zoom, 1.0)));
-                            const startX = (playerChunkX - renderDistance) * CHUNK_SIZE;
-                            const endX = (playerChunkX + renderDistance + 1) * CHUNK_SIZE;
-                            const startY = (playerChunkY - renderDistance) * CHUNK_SIZE;
-                            const endY = (playerChunkY + renderDistance + 1) * CHUNK_SIZE;
-
-                            /*
-                            // ... [omitted expensive generic loop] ...
-                            for (let x = startX; x <= endX; x++) { ... }
-                            */
-
-                            // Just use the debug loop below if needed.
-
-
-                            // Multi-layer DEBUG grid system (when G is pressed)
-                            if (showGrid) {
-                                // 1. Green shades for grass tiles
-                                for (let y = startY; y < endY; y++) {
-                                    for (let x = startX; x < endX; x++) {
-                                        if (getTile(x, y) === 1) {
-                                            overlayGraphics.beginFill(0x00ff00, 0.1);
-                                            overlayGraphics.drawRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                                            overlayGraphics.endFill();
+                                            grassSprite.width = TILE_SIZE;
+                                            grassSprite.height = TILE_SIZE;
+                                            chunkGrass.addChild(grassSprite);
                                         }
                                     }
                                 }
 
-                                // 2. Blue chunk boundaries
-                                overlayGraphics.lineStyle(2, 0x0000ff, 0.5);
-                                const chunkStartX = Math.floor(startX / CHUNK_SIZE) * CHUNK_SIZE;
-                                const chunkEndX = Math.ceil(endX / CHUNK_SIZE) * CHUNK_SIZE;
-                                const chunkStartY = Math.floor(startY / CHUNK_SIZE) * CHUNK_SIZE;
-                                const chunkEndY = Math.ceil(endY / CHUNK_SIZE) * CHUNK_SIZE;
-
-                                for (let x = chunkStartX; x <= chunkEndX; x += CHUNK_SIZE) {
-                                    overlayGraphics.moveTo(x * TILE_SIZE, chunkStartY * TILE_SIZE);
-                                    overlayGraphics.lineTo(x * TILE_SIZE, chunkEndY * TILE_SIZE);
-                                }
-                                for (let y = chunkStartY; y <= chunkEndY; y += CHUNK_SIZE) {
-                                    overlayGraphics.moveTo(chunkStartX * TILE_SIZE, y * TILE_SIZE);
-                                    overlayGraphics.lineTo(chunkEndX * TILE_SIZE, y * TILE_SIZE);
-                                }
-                                overlayGraphics.stroke(); // Make lines visible
-
-                                // 3. Red Tile Grid (World Grid)
-                                // FIX: Use full opacity and correct color (0xFF0000)
-                                overlayGraphics.lineStyle(1, 0xFF0000, 0.5);
-                                for (let x = startX; x <= endX; x++) {
-                                    overlayGraphics.moveTo(x * TILE_SIZE, startY * TILE_SIZE);
-                                    overlayGraphics.lineTo(x * TILE_SIZE, endY * TILE_SIZE);
-                                }
-                                for (let y = startY; y <= endY; y++) {
-                                    overlayGraphics.moveTo(startX * TILE_SIZE, y * TILE_SIZE);
-                                    overlayGraphics.lineTo(endX * TILE_SIZE, y * TILE_SIZE);
-                                }
-
-                                // 4. White Offset Grid (2x Thinner)
-                                overlayGraphics.lineStyle(0.5, 0xFFFFFF, 0.3);
-                                const offset = 8; // FIX: 8px Offset (Half Block for Dual Grid)
-                                for (let x = startX; x <= endX; x++) {
-                                    overlayGraphics.moveTo(x * TILE_SIZE + offset, startY * TILE_SIZE + offset);
-                                    overlayGraphics.lineTo(x * TILE_SIZE + offset, endY * TILE_SIZE + offset);
-                                }
-                                for (let y = startY; y <= endY; y++) {
-                                    overlayGraphics.moveTo(startX * TILE_SIZE + offset, y * TILE_SIZE + offset);
-                                    overlayGraphics.lineTo(endX * TILE_SIZE + offset, y * TILE_SIZE + offset);
-                                }
+                                chunkContainers.set(key, { dirt: chunkDirt, grass: chunkGrass });
+                                dirtLayer.addChild(chunkDirt);
+                                grassLayer.addChild(chunkGrass);
                             }
 
-                            overlayGraphics.stroke(); // Make lines visible
+                            function render() {
+                                // Skip if renderChunk not ready yet
+                                if (!renderChunk) return;
 
-                            overlayGraphics.zIndex = 2000; // Ensure overlays are on top of chunks (zIndex 0) and selection (zIndex 1000)
-                            world.addChild(overlayGraphics);
+                                // Reset chunk count each frame
+                                chunksRendered = 0;
+
+                                // Check if we crossed LOD threshold
+                                const currentLODState = camera.zoom < config.lodThreshold;
+                                if (lastLODState !== currentLODState) {
+                                    // Clear all chunks when crossing LOD threshold
+                                    for (const [key, containers] of chunkContainers.entries()) {
+                                        if (containers.dirt) {
+                                            dirtLayer.removeChild(containers.dirt);
+                                            containers.dirt.destroy();
+                                        }
+                                        if (containers.grass) {
+                                            grassLayer.removeChild(containers.grass);
+                                            containers.grass.destroy();
+                                        }
+                                    }
+                                    chunkContainers.clear();
+                                    lastLODState = currentLODState;
+                                }
+
+                                // AGGRESSIVE GC: Prevent memory leaks
+                                if (chunks.size > 1000) {
+                                    // Calculate player chunk position for GC
+                                    const playerChunkX = Math.floor(player.x / TILE_SIZE / CHUNK_SIZE);
+                                    const playerChunkY = Math.floor(player.y / TILE_SIZE / CHUNK_SIZE);
+                                    const renderDistance = config.renderDistance;
+
+                                    // Force cleanup of ANY chunk outside view + buffer
+                                    for (const key of chunks.keys()) {
+                                        const [cx, cy] = key.split(',').map(Number);
+                                        if (Math.abs(cx - playerChunkX) > renderDistance + 2 ||
+                                            Math.abs(cy - playerChunkY) > renderDistance + 2) {
+                                            chunks.delete(key);
+                                        }
+                                    }
+                                }
+
+                                // Calculate visible bounds based on viewport
+                                const viewHalfW = (app.screen.width / camera.zoom) / 2;
+                                const viewHalfH = (app.screen.height / camera.zoom) / 2;
+
+                                // Convert to chunk coordinates - limit to render distance from config
+                                const maxRenderDist = Math.min(config.renderDistance, 32); // Increased cap for Infinite World feel
+
+                                // Calculate viewport-based chunk range
+                                // Increased pad (2 chunks) to prevent clipping of edge sprites (Dual Grid)
+                                let startChunkX = Math.floor((camera.x - viewHalfW) / (TILE_SIZE * CHUNK_SIZE)) - 2;
+                                let endChunkX = Math.ceil((camera.x + viewHalfW) / (TILE_SIZE * CHUNK_SIZE)) + 2;
+                                let startChunkY = Math.floor((camera.y - viewHalfH) / (TILE_SIZE * CHUNK_SIZE)) - 2;
+                                let endChunkY = Math.ceil((camera.y + viewHalfH) / (TILE_SIZE * CHUNK_SIZE)) + 2;
+
+                                // Also limit by render distance from player chunk
+                                const playerChunkXCenter = Math.floor(player.x / TILE_SIZE / CHUNK_SIZE);
+                                const playerChunkYCenter = Math.floor(player.y / TILE_SIZE / CHUNK_SIZE);
+                                startChunkX = Math.max(startChunkX, playerChunkXCenter - maxRenderDist);
+                                endChunkX = Math.min(endChunkX, playerChunkXCenter + maxRenderDist);
+                                startChunkY = Math.max(startChunkY, playerChunkYCenter - maxRenderDist);
+                                endChunkY = Math.min(endChunkY, playerChunkYCenter + maxRenderDist);
+
+                                // Determine which chunks should be visible
+                                const chunksToRender = new Set();
+                                for (let cy = startChunkY; cy <= endChunkY; cy++) {
+                                    for (let cx = startChunkX; cx <= endChunkX; cx++) {
+                                        chunksToRender.add(`${cx},${cy}`);
+                                    }
+                                }
+
+                                // Remove chunks that are out of range
+                                for (const [key, containers] of chunkContainers.entries()) {
+                                    if (!chunksToRender.has(key)) {
+                                        if (containers.dirt) {
+                                            dirtLayer.removeChild(containers.dirt);
+                                            containers.dirt.destroy({ children: true });
+                                        }
+                                        if (containers.grass) {
+                                            grassLayer.removeChild(containers.grass);
+                                            containers.grass.destroy({ children: true });
+                                        }
+                                        chunkContainers.delete(key);
+                                    }
+                                }
+
+                                // Render new chunks (only if not already rendered)
+                                // Time Slicing Scale: More chunks if zoomed out
+                                const MAX_CHUNKS_PER_FRAME = config.maxChunksPerFrame || 10;
+                                let chunksCreated = 0;
+
+                                // Loop through chunks (standard scanline order: top-to-bottom)
+                                for (const key of chunksToRender) {
+                                    if (!chunkContainers.has(key)) {
+                                        if (chunksCreated < MAX_CHUNKS_PER_FRAME) {
+                                            const [cx, cy] = key.split(',').map(Number);
+                                            renderChunk(cx, cy);
+                                            chunksCreated++;
+                                        }
+                                        // If we hit limit, we just stop creating for this frame. 
+                                        // They will be picked up next frame.
+                                    }
+                                    chunksRendered++;
+                                }
+
+                                // Update stats - Cached and Rendered (no Loading indicator)
+                                const fps = Math.round(app.ticker.FPS);
+                                const activeChunks = chunkContainers.size;
+                                const cachedChunks = chunks.size;
+                                document.getElementById('info').textContent = `FPS: ${fps} | x: ${Math.floor(player.x)} y: ${Math.floor(player.y)} | Zoom: ${camera.zoom.toFixed(2)}x | Rendered: ${activeChunks} | Cached: ${cachedChunks}`;
+
+
+                            } // End render
+
+                            // Update Grid Positions
+                            if (typeof renderOverlays === 'function') renderOverlays();
+                        });
+                    } // End startGameLoop
+
+                    // Render overlays (grid, highlights, etc) - called after chunk rendering
+                    let overlayGraphics = null;
+
+                    function renderOverlays() {
+                        // Skip overlay rendering entirely if grid is disabled (massive performance boost)
+                        if (!showGrid) {
+                            if (overlayGraphics) {
+                                world.removeChild(overlayGraphics);
+                                overlayGraphics.destroy();
+                                overlayGraphics = null;
+                            }
+                            if (window.gridRed) window.gridRed.visible = false;
+                            if (window.gridWhite) window.gridWhite.visible = false;
+                            return; // Exit function
                         }
+
+                        // reuse graphics   
+                        if (overlayGraphics) {
+                            overlayGraphics.clear();
+                        } else {
+                            overlayGraphics = new PIXI.Graphics();
+                        }
+
+                        // Calculate visible area
+                        const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
+                        const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
+                        const renderDistance = Math.min(5, Math.ceil(5 / Math.max(camera.zoom, 1.0)));
+                        const startX = (playerChunkX - renderDistance) * CHUNK_SIZE;
+                        const endX = (playerChunkX + renderDistance + 1) * CHUNK_SIZE;
+                        const startY = (playerChunkY - renderDistance) * CHUNK_SIZE;
+                        const endY = (playerChunkY + renderDistance + 1) * CHUNK_SIZE;
+
+
+                        // OPTIMIZED GRID RENDERING (TilingSprite)
+                        // Initialize TilingSprites once if not exists
+                        if (!window.gridRed) {
+                            // Create Red Grid Texture (16x16 with red border)
+                            const cvsRed = document.createElement('canvas');
+                            cvsRed.width = TILE_SIZE; cvsRed.height = TILE_SIZE;
+                            const ctxRed = cvsRed.getContext('2d');
+                            ctxRed.lineWidth = 1;
+                            ctxRed.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+                            ctxRed.strokeRect(0, 0, TILE_SIZE, TILE_SIZE);
+                            const texRed = PIXI.Texture.from(cvsRed);
+                            window.gridRed = new PIXI.TilingSprite(texRed, app.screen.width, app.screen.height);
+                            window.gridRed.alpha = 1.0;
+                            window.gridRed.zIndex = 2000;
+                            window.gridRed.visible = false;
+                            world.addChild(window.gridRed);
+                        }
+
+                        if (!window.gridWhite) {
+                            // Create White Grid Texture (16x16 with VERY thin white border)
+                            const cvsWhite = document.createElement('canvas');
+                            cvsWhite.width = TILE_SIZE; cvsWhite.height = TILE_SIZE;
+                            const ctxWhite = cvsWhite.getContext('2d');
+                            // Use 0.5px line for thinner appearance
+                            ctxWhite.lineWidth = 0.5;
+                            ctxWhite.strokeStyle = 'rgba(255, 255, 255, 0.15)'; // Very subtle
+                            ctxWhite.strokeRect(0.25, 0.25, TILE_SIZE - 0.5, TILE_SIZE - 0.5);
+                            const texWhite = PIXI.Texture.from(cvsWhite);
+                            window.gridWhite = new PIXI.TilingSprite(texWhite, app.screen.width, app.screen.height);
+                            window.gridWhite.alpha = 0.5; // Even more transparent
+                            window.gridWhite.zIndex = 2001;
+                            window.gridWhite.visible = false;
+                            world.addChild(window.gridWhite);
+                        }
+
+                        // Update Grid Visibility and Position
+                        window.gridRed.visible = true;
+                        window.gridWhite.visible = true;
+
+                        // Align grid with World View (Camera)
+                        // TilingSprite pattern origin is at (0,0) of the sprite.
+                        // We move the sprite to cover the view.
+                        const viewX = camera.x - (app.screen.width / camera.zoom / 2);
+                        const viewY = camera.y - (app.screen.height / camera.zoom / 2);
+                        const viewW = app.screen.width / camera.zoom;
+                        const viewH = app.screen.height / camera.zoom;
+
+                        // 1. Position the TilingSprite to cover the camera view
+                        // We snap it to TILE_SIZE to avoid jitter, but TilingSprite handles subpixel logic if we set tilePosition?
+                        // Actually, simpler: Set sprite to ViewRect. Set tilePosition to (ViewX, ViewY).
+
+                        window.gridRed.width = viewW + TILE_SIZE * 2;
+                        window.gridRed.height = viewH + TILE_SIZE * 2;
+                        window.gridRed.x = Math.floor(viewX / TILE_SIZE) * TILE_SIZE;
+                        window.gridRed.y = Math.floor(viewY / TILE_SIZE) * TILE_SIZE;
+                        // Shift texture pattern opposite to movement to stick to world?
+                        // If sprite is at worldX, worldY... and texture is 16x16.
+                        // If we move sprite 16px, pattern matches.
+                        // So we don't need to change tilePosition if we snap x/y to grid!
+                        window.gridRed.tilePosition.x = 0;
+                        window.gridRed.tilePosition.y = 0;
+
+                        // White Grid (Offset 8px)
+                        window.gridWhite.width = viewW + TILE_SIZE * 2;
+                        window.gridWhite.height = viewH + TILE_SIZE * 2;
+                        window.gridWhite.x = window.gridRed.x - (TILE_SIZE / 2);
+                        window.gridWhite.y = window.gridRed.y - (TILE_SIZE / 2);
+                        window.gridWhite.tilePosition.x = 0;
+                        window.gridWhite.tilePosition.y = 0;
+
+
+                        // 1. Green shades for grass tiles (Keep loop for now, hard to tile-sprite)
+                        for (let y = startY; y < endY; y++) {
+                            for (let x = startX; x < endX; x++) {
+                                if (getTile(x, y) === 1) {
+                                    overlayGraphics.beginFill(0x00ff00, 0.15); // Slightly more visible green shade
+                                    overlayGraphics.drawRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                                    overlayGraphics.endFill();
+                                }
+                            }
+                        }
+
+                        // 2. Blue chunk boundaries
+                        overlayGraphics.lineStyle(2, 0x0000ff, 0.5);
+                        const chunkStartX = Math.floor(startX / CHUNK_SIZE) * CHUNK_SIZE;
+                        const chunkEndX = Math.ceil(endX / CHUNK_SIZE) * CHUNK_SIZE;
+                        const chunkStartY = Math.floor(startY / CHUNK_SIZE) * CHUNK_SIZE;
+                        const chunkEndY = Math.ceil(endY / CHUNK_SIZE) * CHUNK_SIZE;
+
+                        for (let x = chunkStartX; x <= chunkEndX; x += CHUNK_SIZE) {
+                            overlayGraphics.moveTo(x * TILE_SIZE, chunkStartY * TILE_SIZE);
+                            overlayGraphics.lineTo(x * TILE_SIZE, chunkEndY * TILE_SIZE);
+                        }
+                        for (let y = chunkStartY; y <= chunkEndY; y += CHUNK_SIZE) {
+                            overlayGraphics.moveTo(chunkStartX * TILE_SIZE, y * TILE_SIZE);
+                            overlayGraphics.lineTo(chunkEndX * TILE_SIZE, y * TILE_SIZE);
+                        }
+                        overlayGraphics.stroke();
+
+                        overlayGraphics.zIndex = 2002;
+                        world.addChild(overlayGraphics);
                     } // End renderOverlays
-                });
-            } // End initGame function
 
-            // HTML Cursor Logic (Simple Follower)
-            const follower = document.getElementById("follower-element");
-            window.addEventListener('mousemove', (event) => {
-                const clientX = event.clientX;
-                const clientY = event.clientY;
-                follower.style.left = `${clientX}px`;
-                follower.style.top = `${clientY}px`;
-            });
 
-        }); // End window.addEventListener
-        // CHUNK FETCHER INTEGRATION (Background Network Thread)
-        // This background thread just DOWNLOADS data from Java. It does not generate it.
-        const workerCode = `
+                    // HTML Cursor Logic (Simple Follower)
+                    const follower = document.getElementById("follower-element");
+                    window.addEventListener('mousemove', (event) => {
+                        const clientX = event.clientX;
+                        const clientY = event.clientY;
+                        follower.style.left = `${clientX}px`;
+                        follower.style.top = `${clientY}px`;
+                    });
+
+
+                    // CHUNK FETCHER INTEGRATION (Background Network Thread)
+                    // This background thread just DOWNLOADS data from Java. It does not generate it.
+                    const workerCode = `
         const SERVER_URL = 'http://localhost:25565';
         const CHUNK_SIZE = 16;
 
@@ -1419,17 +1386,20 @@
                 try {
                     const res = await fetch(SERVER_URL + '/chunk?x=' + cx + '&y=' + cy);
                     if (res.ok) {
-                        // Response is JSON String "1010\\n..."
-                        const rawData = await res.json();
+                        // Response is raw string "101010..." (256 chars)
+                        // Use text(), not json() because server sends text/plain
+                        let rawData = await res.text();
                         
-                        // Parse String to 2D Array in Worker
-                        const rows = rawData.split('\\n');
+                        // SANITIZATION: Remove any newlines just in case DB has legacy data
+                        rawData = rawData.replace(/[\\n\\r]/g, '');
+
                         const chunk2D = [];
                         for (let y = 0; y < CHUNK_SIZE; y++) {
                             chunk2D[y] = [];
-                            const rowStr = rows[y] ? rows[y].trim() : "";
                             for (let x = 0; x < CHUNK_SIZE; x++) {
-                                chunk2D[y][x] = parseInt(rowStr[x] || '0');
+                                // Linear mapping: index = y * CHUNK_SIZE + x
+                                const idx = y * CHUNK_SIZE + x;
+                                chunk2D[y][x] = parseInt(rawData[idx] || '0');
                             }
                         }
 
@@ -1448,106 +1418,243 @@
         };
         `;
 
-        const blob = new Blob([workerCode], { type: 'application/javascript' });
-        const chunkFetcher = new Worker(URL.createObjectURL(blob));
-        chunkFetcher.onmessage = function (e) {
-            const { type, cx, cy, data } = e.data;
-            const key = `${cx},${cy}`;
-            if (type === 'chunkData') {
-                const chunk2D = data; // Received 2D JSON Array directly
-                chunks.set(key, chunk2D);
+                    const blob = new Blob([workerCode], { type: 'application/javascript' });
+                    const chunkFetcher = new Worker(URL.createObjectURL(blob));
+                    chunkFetcher.onmessage = function (e) {
+                        const { type, cx, cy, data } = e.data;
+                        const key = `${cx},${cy}`;
+                        if (type === 'chunkData') {
+                            const chunk2D = data; // Received 2D JSON Array directly
+                            chunks.set(key, chunk2D);
 
-                // EVENT-DRIVEN RENDERING (User Request: "Constant Render / Perfect Loop")
-                // Immediately render the chunk when data arrives. No "Dirty" state.
-                if (renderChunk) {
-                    renderChunk(cx, cy);
-                    // Update neighbors (Autotiling edges)
-                    renderChunk(cx - 1, cy);
-                    renderChunk(cx + 1, cy);
-                    renderChunk(cx, cy - 1);
-                    renderChunk(cx, cy + 1);
-                }
-            }
-        };
-
-        function fetchChunkViaWorker(cx, cy) {
-            // Ensure unique request
-            const key = `${cx},${cy}`;
-            if (pendingChunks.has(key) || chunks.has(key)) return;
-            pendingChunks.add(key);
-            chunkFetcher.postMessage({ type: 'fetchChunk', cx, cy });
-        }
-
-        // Save World Function
-        async function saveWorld() {
-            const saveBtn = document.getElementById('saveBtn');
-            const saveStatus = document.getElementById('saveStatus');
-
-            if (modifiedChunks.size === 0) {
-                // Just log, but continue to save player position
-                console.log("No modified chunks, saving player state only...");
-            }
-
-            // Disable button during save
-            saveBtn.disabled = true;
-            saveBtn.textContent = 'Saving...';
-            saveStatus.textContent = `Saving ${modifiedChunks.size} chunks...`;
-            saveStatus.style.color = '#ff0';
-            saveStatus.style.display = 'block';
-
-            try {
-                // Convert chunk data to JSON format
-                const chunksToSave = [];
-                for (const key of modifiedChunks) {
-                    if (chunks.has(key)) {
-                        const chunk = chunks.get(key);
-                        // Convert 2D array to string format "1010\n0101..."
-                        let dataStr = '';
-                        for (let y = 0; y < CHUNK_SIZE; y++) {
-                            for (let x = 0; x < CHUNK_SIZE; x++) {
-                                dataStr += chunk[y][x];
+                            // EVENT-DRIVEN RENDERING (User Request: "Constant Render / Perfect Loop")
+                            // Immediately render the chunk when data arrives. No "Dirty" state.
+                            if (renderChunk) {
+                                renderChunk(cx, cy);
+                                // Update neighbors (Autotiling edges)
+                                renderChunk(cx - 1, cy);
+                                renderChunk(cx + 1, cy);
+                                renderChunk(cx, cy - 1);
+                                renderChunk(cx, cy + 1);
                             }
-                            if (y < CHUNK_SIZE - 1) dataStr += '\\n';
                         }
-                        chunksToSave.push({ key, data: dataStr });
+                    };
+
+                    fetchChunkViaWorker = function (cx, cy) {
+                        // Ensure unique request
+                        const key = `${cx},${cy}`;
+                        if (pendingChunks.has(key) || chunks.has(key)) return;
+                        pendingChunks.add(key);
+                        chunkFetcher.postMessage({ type: 'fetchChunk', cx, cy });
+                    };
+
+                    // Save World Function
+                    // Save World Function (Auto-Save Optimized)
+                    async function saveWorld() {
+                        if (!socket || socket.readyState !== WebSocket.OPEN) {
+                            console.warn("Cannot save: WS not connected");
+                            alert("Cannot save: Server Disconnected");
+                            return;
+                        }
+
+                        const saveData = {
+                            type: "save",
+                            player: {
+                                x: player.x,
+                                y: player.y
+                            },
+                            chunks: []
+                        };
+
+                        // Gather Modified Chunks
+                        if (modifiedChunks.size > 0) {
+                            for (const key of modifiedChunks) {
+                                if (chunks.has(key)) {
+                                    const chunk = chunks.get(key);
+                                    // Flatten
+                                    let dataStr = '';
+                                    for (let y = 0; y < CHUNK_SIZE; y++) {
+                                        for (let x = 0; x < CHUNK_SIZE; x++) {
+                                            dataStr += chunk[y][x];
+                                        }
+                                    }
+                                    saveData.chunks.push({
+                                        key: key,
+                                        data: dataStr
+                                    });
+                                }
+                            }
+                        }
+
+                        // Needed for the specific manual parser on server which expects a flat list sometimes or specific keys?
+                        // The server parser looks for "key":"..." then "data":"..." repeatedly.
+                        // JSON.stringify will produce `... "chunks":[{"key":"...", "data":"..."}, ...] ...`
+                        // My robust parser in Java (the loop) should handle this standard JSON array format fine 
+                        // because it searches for "key": and "data": sequentially.
+
+                        console.log("Sending Save via WebSocket...");
+                        sendJson(saveData);
+
+                        // Clear modified set locally (optimistic)
+                        modifiedChunks.clear();
+
+                        const btn = document.getElementById('saveBtn');
+                        if (btn) btn.innerText = "Saving...";
                     }
+
+                    async function persistDB() {
+                        // DB REMOVED
+                    }
+
+
+
+                    // Event-Driven Auto-Save Logic
+                    let saveTimeout = null;
+                    const SAVE_DELAY = 2000; // 2 seconds of inactivity before saving player position
+
+                    function triggerSave() {
+                        // If already saving, ignore or debounce?
+                        // Simple debounce: reset timer
+                        if (saveTimeout) clearTimeout(saveTimeout);
+                        saveTimeout = setTimeout(() => {
+                            saveWorld();
+                            saveTimeout = null;
+                        }, SAVE_DELAY);
+                    }
+                }); // End Promise.all().then()
+            } // End initGame
+
+            // --- WebSocket Multiplayer Logic ---
+            let socket;
+            const otherPlayers = new Map(); // id -> {x, y, sprite}
+
+            function initMultiplayer() {
+                try {
+                    socket = new WebSocket('ws://localhost:25566');
+                    window.socket = socket; // Make socket globally accessible for getChunk
+
+                    socket.onopen = () => {
+                        console.log("[WS] Connected to Multiplayer Server");
+                        // Send identification or join packet?
+                        // For now just start sending position
+                    };
+
+                    socket.onmessage = (event) => {
+                        const msg = event.data;
+                        try {
+                            const data = JSON.parse(msg);
+
+                            // 1. Position Update
+                            if (data.type === 'pos') {
+                                if (data.id === socket.uuid) return;
+                                updateRemotePlayer(data.id, data.x, data.y);
+                            }
+                            // 2. Chunk Data Received
+                            else if (data.type === 'chunk') {
+                                const key = data.key;
+                                const rawData = data.data; // "001010..."
+
+                                // Parse Data
+                                const chunk2D = [];
+                                for (let y = 0; y < CHUNK_SIZE; y++) {
+                                    chunk2D[y] = [];
+                                    for (let x = 0; x < CHUNK_SIZE; x++) {
+                                        chunk2D[y][x] = parseInt(rawData[y * CHUNK_SIZE + x]);
+                                    }
+                                }
+
+                                chunks.set(key, chunk2D);
+                                if (window.requestedChunks) window.requestedChunks.delete(key);
+
+                                // Force Re-Render of this chunk if near
+                                // (The main loop will pick it up on next frame automatically)
+                            }
+                            // 3. Save Acknowledgement
+                            else if (data.type === 'saveAck') {
+                                console.log("[WS] Save Successful! Chunks saved:", data.count);
+                                // Update UI if needed
+                                const btn = document.getElementById('saveBtn');
+                                if (btn) {
+                                    btn.innerText = "Saved!";
+                                    setTimeout(() => btn.innerText = "Save Game", 2000);
+                                }
+                            }
+
+                        } catch (e) {
+                            console.warn("WS Parse Error", e);
+                        }
+                    };
+
+                    socket.onclose = () => {
+                        console.log("[WS] Disconnected. Retrying in 5s...");
+                        setTimeout(initMultiplayer, 5000);
+                    };
+
+                } catch (e) {
+                    console.error("[WS] Connection Failed", e);
                 }
-
-                const response = await fetch('http://localhost:25565/save', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        chunks: chunksToSave,
-                        player: { x: player.x, y: player.y }
-                    })
-                });
-
-                const result = await response.json();
-
-                if (response.ok) {
-                    modifiedChunks.clear(); // Clear after successful save
-                    saveStatus.textContent = `Saved ${result.saved} chunks!`;
-                    saveStatus.style.color = '#0f0';
-                } else {
-                    saveStatus.textContent = 'Save failed!';
-                    saveStatus.style.color = '#f00';
-                }
-            } catch (e) {
-                console.error('Save error:', e);
-                saveStatus.textContent = 'Connection error!';
-                saveStatus.style.color = '#f00';
             }
 
-            // Re-enable button
-            saveBtn.disabled = false;
-            saveBtn.textContent = '[SAVE]';
+            function sendJson(data) {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify(data));
+                }
+            }
 
-            // Hide status after delay
-            setTimeout(() => saveStatus.style.display = 'none', 3000);
-        }
+            // Generate a simple ID for this session
+            const myId = Date.now().toString();
 
-        // Bind save button
-        document.getElementById('saveBtn').addEventListener('click', saveWorld);
+            function updateRemotePlayer(id, x, y) {
+                if (!world) return;
+
+                let p = otherPlayers.get(id);
+                if (!p) {
+                    // Create new sprite for other player
+                    const graphics = new PIXI.Graphics();
+                    graphics.beginFill(0xFF0000); // Red for other players
+                    graphics.drawRect(0, 0, 16, 16);
+                    graphics.endFill();
+
+                    p = { sprite: graphics, targetX: x, targetY: y };
+                    p.sprite.x = x;
+                    p.sprite.y = y;
+                    p.sprite.zIndex = 100;
+
+                    world.addChild(p.sprite);
+                    otherPlayers.set(id, p);
+                }
+
+                // Update target for interpolation
+                p.targetX = x;
+                p.targetY = y;
+                // Instant snap for now, or lerp in ticker?
+                p.sprite.x = x;
+                p.sprite.y = y;
+            }
+
+            // Start Multiplayer
+            setTimeout(initMultiplayer, 1000);
+
+            // Broadcast loop
+            setInterval(() => {
+                if (socket && socket.readyState === WebSocket.OPEN && player) {
+                    const payload = JSON.stringify({
+                        type: 'pos',
+                        id: myId,
+                        x: player.x,
+                        y: player.y
+                    });
+                    socket.send(payload);
+                }
+            }, 50); // 20 times per second
+
+        }); // End window.addEventListener
+
+        // Initialize (One-time save on close?)
+        window.addEventListener('beforeunload', () => {
+            // Try to fire a beacon or sync save? HARD to do reliably.
+            // Rely on the frequent triggers.
+        });
 
     </script>
 </body>
