@@ -4,10 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UI Library (Inline)</title>
+    <title>Inventory Prototype</title>
     <style>
         body {
-            /* Real Background so you can see Blur */
             background-image: url('../Assets/Image/Tile/grass.png');
             background-size: 64px;
             image-rendering: pixelated;
@@ -17,53 +16,61 @@
             background-color: #222;
         }
 
-        /* Prevent Selection */
         .ui-frame,
         button,
-        h2 {
+        h2,
+        .ui-slot,
+        .ui-item {
             user-select: none;
         }
 
-        /* UI FRAME: The Simplest "One Element" Solution */
+        /* UI FRAME: Glassmorphism + Frame.png Border */
         .ui-frame {
             position: absolute;
             box-sizing: border-box;
             color: white;
-            /* text-shadow: removed per user request */
             --border-size: 16px;
 
-            /* 1. Blur the Middle (Standard size, no bleeding) */
-            backdrop-filter: blur(3px);
-            -webkit-backdrop-filter: blur(3px);
-
-            /* 2. Vignette (Tint close to edge) */
-            /* Adjusted: Visible but Cool/Gradual (40px blur, 10% opacity) */
-            box-shadow: inset 0 0 40px rgba(255, 255, 255, 0.1);
-
-            /* Filter Removed from Container to protect Text */
+            /* Lighter Transparency as requested */
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            background: rgba(0, 0, 0, 0.25);
+            box-shadow: inset 0 0 40px rgba(255, 255, 255, 0.05);
         }
 
-        /* BORDER LAYER (::before) - Isolated for Shader */
         .ui-frame::before {
             content: "";
             position: absolute;
             inset: 0;
             z-index: 2;
             pointer-events: none;
-
             border: var(--border-size) solid transparent;
             border-image: url('../Assets/Image/frame.png') 16 / var(--border-size) repeat;
-
-            /* 3. RED SCREEN SHADER (SVG Filter) - Applied ONLY to Border */
             filter: url(#remove-red);
+            image-rendering: pixelated;
         }
 
-        /* REMOVED Button Styles (User requested) */
+        /* Utility */
+        .ui-center-x {
+            left: 50% !important;
+            transform: translateX(-50%);
+        }
+
+        .ui-center-y {
+            top: 50% !important;
+            transform: translateY(-50%);
+        }
+
+        .ui-center-xy {
+            left: 50% !important;
+            top: 50% !important;
+            transform: translate(-50%, -50%);
+        }
     </style>
 </head>
 
 <body>
-    <!-- SVG SHADER: The "Green Screen" logic for HTML -->
+    <!-- SVG SHADER -->
     <svg width="0" height="0" style="position: absolute;">
         <filter id="remove-red">
             <feColorMatrix type="matrix" values="
@@ -77,106 +84,343 @@
     <!-- UI SYSTEM -->
     <script>
         const UI = {
-            config: {
-                borderSize: 16, // Tileset is 48x48 (16px tiles)
-            },
+            config: { borderSize: 16, slotSize: 40 },
 
             init: function () {
                 const fontFace = new FontFace('Minecraft', 'url(../Assets/Font/pixel.ttf)');
                 fontFace.load().then(function (loadedFont) {
                     document.fonts.add(loadedFont);
                     document.body.style.fontFamily = 'Minecraft, monospace';
-                    document.body.style.webkitFontSmoothing = 'none';
-                    document.body.style.mozOsxFontSmoothing = 'grayscale';
                 });
-                console.log("UI: Active (SVG Shader Mode)");
+
+                this.selectedItem = null;
+                this.selectedSource = null;
+                this.activeHotbarSlot = 0;
+
+                this.dragState = {
+                    active: false, item: null, source: null, visual: null, startX: 0, startY: 0
+                };
+
+                // HOTBAR KEYS
+                document.addEventListener('keydown', (e) => {
+                    if (e.repeat || e.target.tagName === 'INPUT') return;
+                    const key = parseInt(e.key);
+                    if (!isNaN(key)) {
+                        let slot = key - 1;
+                        if (key === 0) slot = 9;
+                        if (slot >= 0 && slot <= 9) this.setActiveHotbar(slot);
+                    }
+                });
+            },
+
+            setActiveHotbar: function (idx) {
+                this.activeHotbarSlot = idx;
+                const slots = document.querySelectorAll('.hb-slot');
+                slots.forEach((s, i) => {
+                    if (i === idx) s.classList.add('active-slot');
+                    else s.classList.remove('active-slot');
+                });
+            },
+
+            _createFrame: function (x, y, w, h) {
+                const frame = document.createElement('div');
+                frame.className = 'ui-frame';
+                frame.style.width = w + 'px';
+                frame.style.height = h + 'px';
+                frame.style.setProperty('--border-size', this.config.borderSize + 'px');
+
+                if (x === 'center' && y === 'center') {
+                    frame.classList.add('ui-center-xy');
+                } else {
+                    if (x === 'center') frame.classList.add('ui-center-x');
+                    else frame.style.left = x + 'px';
+
+                    if (y === 'center') frame.classList.add('ui-center-y');
+                    else frame.style.top = y + 'px';
+                }
+
+                // Align items center to solve "Not centered" feedback if grid is slightly smaller
+                const inner = document.createElement('div');
+                Object.assign(inner.style, {
+                    position: 'relative', zIndex: '3', height: '100%',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center'
+                });
+                frame.appendChild(inner);
+                document.body.appendChild(frame);
+                return { frame, inner };
             },
 
             createWindow: function (title, x, y, width, height) {
-                const frame = document.createElement('div');
-                frame.className = 'ui-frame';
-                // Set sizes and dynamic variables
-                Object.assign(frame.style, {
-                    left: x + 'px', top: y + 'px',
-                    width: width + 'px', height: height + 'px',
-                });
-                frame.style.setProperty('--border-size', this.config.borderSize + 'px');
-
-                // Content Container (Above Glass, Below Border)
-                const inner = document.createElement('div');
-                Object.assign(inner.style, {
-                    position: 'relative', zIndex: '1', height: '100%',
-                    display: 'flex', flexDirection: 'column'
-                });
-                frame.appendChild(inner);
-
+                const { frame, inner } = this._createFrame(x, y, width, height);
                 if (title) {
-                    const h2 = document.createElement('h2');
+                    const h2 = document.createElement('div');
+                    h2.className = 'ui-title';
                     h2.innerText = title;
-                    h2.style.borderBottom = '1px solid rgba(255,255,255,0.2)';
-                    h2.style.textAlign = 'center';
-                    h2.style.width = '100%';
-                    h2.style.margin = '0';
-                    h2.style.padding = '8px 0 2px 0'; // Reduced bottom padding per user request
-                    inner.appendChild(h2);
+                    inner.insertBefore(h2, inner.firstChild);
+                    this._makeDraggable(frame, h2);
                 }
-
-                this._makeDraggable(frame);
-                document.body.appendChild(frame);
-                inner.parentFrame = frame;
                 return inner;
             },
 
-            addButton: function (parent, text, onClick) {
-                const btn = document.createElement('div');
-                btn.className = 'ui-btn';
-                btn.style.height = '32px';
-                btn.style.setProperty('--btn-border', '16px');
+            createSlottedWindow: function (title, x, y, cols, rows, slotsArray, isHotbar = false) {
+                const SLOT_SIZE = 32;
+                const GAP = 8;
+                const PADDING = 8;
+                const BORDER = 16;
 
-                const label = document.createElement('span');
-                label.innerText = text;
-                label.style.zIndex = '2';
-                label.style.pointerEvents = 'none';
-                btn.appendChild(label);
+                const gridWidth = (SLOT_SIZE * cols) + (GAP * (cols - 1));
+                const innerWidth = gridWidth + (PADDING * 2);
+                const gridHeight = (SLOT_SIZE * rows) + (GAP * (rows - 1));
 
-                btn.onclick = function (e) {
-                    e.stopPropagation();
-                    onClick();
+                // Title is now Internal, so it ADDS to inner height
+                const titleHeight = title ? 32 : 0; // 24px height + 8px margin
+
+                const realInnerHeight = gridHeight + (PADDING * 2) + titleHeight;
+                const finalHeight = realInnerHeight + (BORDER * 2);
+
+                const totalWidth = innerWidth + (BORDER * 2);
+                const { frame, inner } = this._createFrame(x, y, totalWidth, finalHeight);
+
+                if (title) {
+                    const h2 = document.createElement('div');
+                    h2.className = 'ui-title';
+                    h2.innerText = title;
+                    inner.insertBefore(h2, inner.firstChild);
+                    this._makeDraggable(frame, h2);
+                }
+
+                const grid = document.createElement('div');
+                Object.assign(grid.style, {
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${cols}, ${SLOT_SIZE}px)`,
+                    gap: `${GAP}px`,
+                    padding: `${PADDING}px`,
+                    boxSizing: 'border-box'
+                });
+                if (title) grid.style.paddingTop = '0';
+
+                inner.appendChild(grid);
+
+                for (let i = 0; i < cols * rows; i++) {
+                    const slot = document.createElement('div');
+                    slot.className = 'ui-slot';
+                    if (isHotbar) slot.classList.add('hb-slot');
+                    slot.dataset.index = i;
+
+                    slot.onmousedown = (e) => this._onSlotMouseDown(e, slot, slotsArray);
+                    slot.oncontextmenu = (e) => {
+                        e.preventDefault();
+                        this._onSlotRightClick(slot, slotsArray);
+                    };
+
+                    grid.appendChild(slot);
+                    if (slotsArray && slotsArray[i]) this._renderItem(slot, slotsArray[i]);
+                }
+
+                return { frame, inner, grid };
+            },
+
+            _renderItem: function (slot, item) {
+                const wasSelected = slot.classList.contains('selected');
+                slot.innerHTML = '';
+                if (!item) {
+                    if (wasSelected) slot.classList.remove('selected');
+                    return;
+                }
+
+                const img = document.createElement('div');
+                img.className = 'ui-item';
+                img.style.backgroundColor = item.color || '#fff';
+                if (item.count > 1) {
+                    const count = document.createElement('span');
+                    count.className = 'item-count';
+                    count.innerText = item.count;
+                    img.appendChild(count);
+                }
+                slot.appendChild(img);
+            },
+
+            _onSlotMouseDown: function (e, slot, slotsArray) {
+                if (e.button !== 0) return;
+
+                const idx = parseInt(slot.dataset.index);
+                const item = slotsArray[idx];
+
+                if (this.selectedItem) {
+                    this._handleSlotClick(slot, slotsArray);
+                    return;
+                }
+
+                const startX = e.clientX;
+                const startY = e.clientY;
+                let isDragStarted = false;
+
+                const onMouseMove = (moveEvent) => {
+                    const dx = moveEvent.clientX - startX;
+                    const dy = moveEvent.clientY - startY;
+
+                    if (!isDragStarted && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+                        if (item) {
+                            isDragStarted = true;
+                            this._startDrag(item, slot, slotsArray, startX, startY);
+                        }
+                    }
+
+                    if (isDragStarted && this.dragState.active) {
+                        this.dragState.visual.style.left = (moveEvent.clientX - 16) + 'px';
+                        this.dragState.visual.style.top = (moveEvent.clientY - 16) + 'px';
+                    }
                 };
 
-                parent.appendChild(btn);
-                return btn;
+                const onMouseUp = (upEvent) => {
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                    if (isDragStarted) this._endDrag(upEvent);
+                    else this._handleSlotClick(slot, slotsArray);
+                };
+
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
             },
 
-            addLabel: function (parent, html) {
-                const p = document.createElement('p');
-                p.innerHTML = html;
-                p.style.margin = '4px 12px';
-                p.style.fontSize = '14px';
-                p.style.lineHeight = '1.5';
-                parent.appendChild(p);
+            _startDrag: function (item, slotDOM, slotsArray, x, y) {
+                this.dragState.active = true;
+                this.dragState.item = item;
+                this.dragState.source = { arr: slotsArray, idx: parseInt(slotDOM.dataset.index), slotDOM: slotDOM };
+
+                const visual = document.createElement('div');
+                visual.className = 'ui-item drag-ghost';
+                visual.style.backgroundColor = item.color || '#fff';
+                // Copy inner
+                visual.innerHTML = slotDOM.querySelector('.ui-item').innerHTML;
+
+                visual.style.position = 'fixed';
+                visual.style.left = (x - 16) + 'px';
+                visual.style.top = (y - 16) + 'px';
+                visual.style.zIndex = '9999';
+                visual.style.pointerEvents = 'none';
+
+                document.body.appendChild(visual);
+                this.dragState.visual = visual;
+                slotDOM.style.opacity = '0.5';
             },
 
-            _makeDraggable: function (el) {
+            _endDrag: function (e) {
+                const targetEl = document.elementFromPoint(e.clientX, e.clientY);
+                const targetSlot = targetEl ? targetEl.closest('.ui-slot') : null;
+
+                let success = false;
+                if (targetSlot) {
+                    const targetIdx = parseInt(targetSlot.dataset.index);
+                    const sourceInfo = this.dragState.source;
+                    const targetGrid = targetSlot.parentElement;
+                    let targetDataArr = null;
+                    if (targetGrid.id === 'inv-grid') targetDataArr = window.inventoryData;
+                    if (targetGrid.id === 'hb-grid') targetDataArr = window.hotbarData;
+
+                    if (targetDataArr === sourceInfo.arr && targetIdx === sourceInfo.idx) {
+                        this._handleSlotClick(sourceInfo.slotDOM, sourceInfo.arr);
+                    } else if (targetDataArr) {
+                        this._swapItems(sourceInfo.arr, sourceInfo.idx, targetDataArr, targetIdx);
+                        success = true;
+                    }
+                }
+
+                document.body.removeChild(this.dragState.visual);
+                this.dragState.source.slotDOM.style.opacity = '1';
+                this.dragState = { active: false, item: null, visual: null, source: null };
+                if (success) {
+                    refreshAll();
+                    this._clearSelection();
+                }
+            },
+
+            _handleSlotClick: function (slot, slotsArray) {
+                const idx = parseInt(slot.dataset.index);
+                const item = slotsArray[idx];
+
+                if (!this.selectedItem) {
+                    if (item) {
+                        this.selectedItem = item;
+                        this.selectedSource = { arr: slotsArray, idx: idx, slotDOM: slot };
+                        slot.classList.add('selected');
+                    }
+                } else {
+                    if (this.selectedSource.slotDOM === slot) {
+                        this._clearSelection();
+                        return;
+                    }
+                    this._swapItems(this.selectedSource.arr, this.selectedSource.idx, slotsArray, idx);
+                    this._clearSelection();
+                    refreshAll();
+                }
+            },
+
+            _onSlotRightClick: function (slot, slotsArray) {
+                const idx = parseInt(slot.dataset.index);
+                const item = slotsArray[idx];
+                if (!item) return;
+
+                let targetArr = null;
+                const gridId = slot.parentElement.id;
+
+                if (gridId === 'inv-grid') targetArr = window.hotbarData;
+                else if (gridId === 'hb-grid') targetArr = window.inventoryData;
+
+                if (targetArr) {
+                    let targetIdx = -1;
+                    for (let i = 0; i < targetArr.length; i++) {
+                        if (!targetArr[i]) {
+                            targetIdx = i;
+                            break;
+                        }
+                    }
+                    if (targetIdx !== -1) {
+                        targetArr[targetIdx] = item;
+                        slotsArray[idx] = null;
+                        this._clearSelection();
+                        refreshAll();
+                    }
+                }
+            },
+
+            _swapItems: function (srcArr, srcIdx, tgtArr, tgtIdx) {
+                const temp = tgtArr[tgtIdx];
+                tgtArr[tgtIdx] = srcArr[srcIdx];
+                srcArr[srcIdx] = temp;
+            },
+
+            _clearSelection: function () {
+                const all = document.querySelectorAll('.ui-slot');
+                all.forEach(s => s.classList.remove('selected'));
+                this.selectedItem = null;
+                this.selectedSource = null;
+            },
+
+            _makeDraggable: function (el, handle) {
                 let isDragging = false;
                 let startX, startY, initialLeft, initialTop;
 
-                el.onmousedown = function (e) {
-                    if (e.target.className === 'ui-btn' || e.target.onclick) return;
+                handle.onmousedown = function (e) {
                     isDragging = true;
+                    // Reset CSS center locks
+                    const rect = el.getBoundingClientRect();
+                    el.style.left = rect.left + 'px';
+                    el.style.top = rect.top + 'px';
+                    el.style.transform = 'none';
+                    el.classList.remove('ui-center-xy', 'ui-center-x', 'ui-center-y');
+
                     startX = e.clientX;
                     startY = e.clientY;
-                    initialLeft = el.offsetLeft;
-                    initialTop = el.offsetTop;
+                    initialLeft = rect.left;
+                    initialTop = rect.top;
                     el.style.cursor = 'grabbing';
                 };
 
                 document.onmousemove = function (e) {
                     if (!isDragging) return;
-                    const dx = e.clientX - startX;
-                    const dy = e.clientY - startY;
-                    el.style.left = (initialLeft + dx) + 'px';
-                    el.style.top = (initialTop + dy) + 'px';
+                    el.style.left = (initialLeft + e.clientX - startX) + 'px';
+                    el.style.top = (initialTop + e.clientY - startY) + 'px';
                 };
 
                 document.onmouseup = function () {
@@ -185,16 +429,198 @@
                 };
             }
         };
+
+        const style = document.createElement('style');
+        style.innerHTML = `
+            /* Clean Slot Style - Based on Sprite (select.png) */
+            .ui-slot {
+                width: 32px; height: 32px;
+                
+                /* Reset Native Styles */
+                background-color: transparent;
+                border: none;
+                border-radius: 0;
+                
+                /* Sprite Background (select.png) */
+                background-image: url('../Assets/Image/select.png');
+                background-size: 100% 200%; /* Vertical Strip (2 Frames) */
+                background-position: 0 0;   /* Top Frame (Normal) */
+                background-repeat: no-repeat;
+                
+                position: relative;
+                cursor: pointer;
+                box-sizing: border-box; 
+                display: flex; align-items: center; justify-content: center;
+                image-rendering: pixelated;
+                
+                /* Debug/Fallback if image missing: minimal outline */
+                /* box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1); optional */
+            }
+            
+            .ui-slot:hover { 
+                filter: brightness(1.2); /* Simple hover effect on sprite */
+            }
+
+            /* Selected State: Show 2nd Frame of Sprite */
+            .ui-slot.selected {
+                background-position: 0 100%; /* Bottom Frame (Selected) */
+            }
+            
+            /* Remove old ::after overlay logic */
+            .ui-slot.selected::after {
+                content: none; 
+            }
+            
+            .hb-slot.active-slot {
+                 /* Uses the "Selected" Sprite Loop: Bottom Frame */
+                 background-position: 0 100%;
+                 /* Remove the glow/shadow */
+                 box-shadow: none; 
+                 z-index: 2; /* Bring above if needed */
+            }
+            
+            .ui-item { width: 20px; height: 20px; box-shadow: 1px 1px 0 rgba(0,0,0,0.5); z-index: 5; }
+            .drag-ghost { opacity: 0.8; transform: scale(1.1); pointer-events: none; }
+            .item-count { position: absolute; bottom: 2px; right: 2px; font-size: 8px; color: white; text-shadow: 1px 1px 0 #000; pointer-events: none; z-index: 6; font-family: 'Minecraft', monospace; }
+            
+            /* Lighter Frame Background - "Clear" */
+            .ui-frame {
+                 background: rgba(0, 0, 0, 0); 
+                 box-shadow: inset 0 0 40px rgba(255, 255, 255, 0.05); /* Very faint glass */
+                 backdrop-filter: blur(4px);
+                 -webkit-backdrop-filter: blur(4px);
+                 
+                 /* Padding to prevent content overlap with Border */
+                 padding: var(--border-size); 
+            }
+            
+            /* Border Layer */
+            .ui-frame::before {
+                content: "";
+                position: absolute;
+                inset: 0;
+                z-index: 5; 
+                pointer-events: none;
+                
+                border: var(--border-size) solid transparent;
+                border-image: url('../Assets/Image/frame.png') 16 / var(--border-size) repeat;
+                image-rendering: pixelated;
+                
+                filter: url(#remove-red);
+            }
+
+            /* Internal Title Bar (Draggable) */
+            .ui-title {
+                width: 100%;
+                height: 24px;
+                line-height: 24px;
+                background: rgba(255, 255, 255, 0.1);
+                border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+                margin-bottom: 8px;
+                text-align: center;
+                font-size: 16px;
+                font-family: 'Minecraft', monospace;
+                cursor: grab;
+                flex-shrink: 0; /* Prevent shrinking */
+                pointer-events: auto;
+            }
+            .ui-title:active {
+                cursor: grabbing;
+                background: rgba(255, 255, 255, 0.2);
+            }
+        `;
+        document.head.appendChild(style);
     </script>
 
-    <!-- Main Logic Script -->
+    <!-- Demo Script -->
     <script>
         UI.init();
-        const win = UI.createWindow("Window", 100, 100, 400, 300);
-        UI.addLabel(win, "Item: <strong>Lazor Pickaxe</strong>");
-        UI.addLabel(win, "Durability: 9000/9001");
-        UI.addLabel(win, "<i>'A shiny tool for a shiny person.'</i>");
-        // Buttons removed per user request
+
+        window.inventoryData = Array(30).fill(null);
+        window.hotbarData = Array(2).fill(null); // UPDATED: 2 Slots only
+
+        inventoryData[0] = { id: 'wood', count: 10, color: '#8B4513' };
+        inventoryData[1] = { id: 'stone', count: 64, color: '#888' };
+        hotbarData[0] = { id: 'sword', count: 1, color: '#0ff' };
+
+        // 1. Inventory
+        const invWin = UI.createSlottedWindow("Backpack", 'center', 'center', 10, 3, window.inventoryData);
+        invWin.grid.id = 'inv-grid';
+
+        // 2. Hotbar (2 Slots)
+        const hotbarHeight = 48 + 32;
+        const hotbarWin = UI.createSlottedWindow(null, 'center', window.innerHeight - hotbarHeight - 10, 2, 1, window.hotbarData, true);
+        hotbarWin.grid.id = 'hb-grid';
+
+        // 3. Input Indicators (Top Right)
+        const indicatorContainer = document.createElement('div');
+        Object.assign(indicatorContainer.style, {
+            position: 'absolute', top: '20px', right: '20px',
+            display: 'flex', gap: '10px', zIndex: '9999'
+        });
+
+        // Blue Box (LMB)
+        const lmbBox = document.createElement('div');
+        lmbBox.id = 'lmb-indicator';
+        Object.assign(lmbBox.style, {
+            width: '32px', height: '32px', border: '2px solid white',
+            backgroundColor: '#00f', opacity: '0.2', transition: 'opacity 0.1s'
+        });
+        lmbBox.innerText = 'L'; lmbBox.style.color = 'white';
+        lmbBox.style.display = 'flex'; lmbBox.style.alignItems = 'center'; lmbBox.style.justifyContent = 'center';
+        lmbBox.style.fontFamily = 'monospace';
+
+        // Red Box (RMB)
+        const rmbBox = document.createElement('div');
+        rmbBox.id = 'rmb-indicator';
+        Object.assign(rmbBox.style, {
+            width: '32px', height: '32px', border: '2px solid white',
+            backgroundColor: '#f00', opacity: '0.2', transition: 'opacity 0.1s'
+        });
+        rmbBox.innerText = 'R'; rmbBox.style.color = 'white';
+        rmbBox.style.display = 'flex'; rmbBox.style.alignItems = 'center'; rmbBox.style.justifyContent = 'center';
+        rmbBox.style.fontFamily = 'monospace';
+
+        indicatorContainer.appendChild(lmbBox);
+        indicatorContainer.appendChild(rmbBox);
+        document.body.appendChild(indicatorContainer);
+
+        // 3. Comparison Window (Requested)
+        const compWin = UI.createWindow("Test Compare", 50, 50, 200, 150);
+        compWin.innerHTML = "<p style='padding:10px; text-align:center;'>Glassmorphism Check</p>";
+
+        UI.setActiveHotbar(0);
+        function refreshAll() {
+            const invSlots = invWin.grid.children;
+            const hbSlots = hotbarWin.grid.children;
+            for (let i = 0; i < invSlots.length; i++) UI._renderItem(invSlots[i], window.inventoryData[i]);
+            for (let i = 0; i < hbSlots.length; i++) UI._renderItem(hbSlots[i], window.hotbarData[i]);
+            UI.setActiveHotbar(UI.activeHotbarSlot);
+        }
+
+        // Mouse Click Visual Feedback
+        document.addEventListener('mousedown', (e) => {
+            if (e.button === 0) {
+                const el = document.getElementById('lmb-indicator');
+                if (el) el.style.opacity = '1.0';
+            } else if (e.button === 2) {
+                const el = document.getElementById('rmb-indicator');
+                if (el) el.style.opacity = '1.0';
+            }
+        });
+
+        document.addEventListener('mouseup', (e) => {
+            if (e.button === 0) {
+                const el = document.getElementById('lmb-indicator');
+                if (el) el.style.opacity = '0.2';
+            } else if (e.button === 2) {
+                const el = document.getElementById('rmb-indicator');
+                if (el) el.style.opacity = '0.2';
+            }
+        });
+
+        // Disable Context Menu (Right Click)
+        document.addEventListener('contextmenu', event => event.preventDefault());
     </script>
 </body>
 

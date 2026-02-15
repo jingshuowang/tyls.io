@@ -35,42 +35,113 @@ public class Main {
 
         @Override
         public void onMessage(WebSocket conn, String message) {
-            // Simple generic JSON parser since we don't have a library
-            // We look for "type":"value"
-            String type = extractJsonString(message, "type");
+            try {
+                // System.out.println("Received: " + message); // Debug log
 
-            if ("pos".equals(type)) {
-                // Broadcast to others
-                broadcast(message);
-            } else if ("getChunk".equals(type)) {
-                // Handle Chunk Request: {"type":"getChunk", "key":"0,0", "x":0, "y":0}
-                String key = extractJsonString(message, "key");
-                if (key == null)
-                    return;
+                // Simple generic JSON parser since we don't have a library
+                // We look for "type":"value"
+                String type = extractJsonString(message, "type");
 
-                // key is "x,y", split it
-                String[] parts = key.split(",");
-                int cx = Integer.parseInt(parts[0]);
-                int cy = Integer.parseInt(parts[1]);
+                if ("pos".equals(type)) {
+                    // Broadcast to others
+                    broadcast(message);
+                } else if ("getChunk".equals(type)) {
+                    // Handle Chunk Request: {"type":"getChunk", "key":"0,0", "x":0, "y":0}
+                    String key = extractJsonString(message, "key");
+                    if (key == null)
+                        return;
 
-                String chunkData = getOrGenerateChunk(cx, cy);
+                    // key is "x,y", split it
+                    String[] parts = key.split(",");
+                    int cx = Integer.parseInt(parts[0]);
+                    int cy = Integer.parseInt(parts[1]);
 
-                // Send back: {"type":"chunk", "key":"...", "data":"..."}
-                // We construct JSON manually
-                String response = "{\"type\":\"chunk\", \"key\":\"" + key + "\", \"data\":\"" + chunkData + "\"}";
-                conn.send(response);
-            } else if ("save".equals(type)) {
-                // Handle Save: {"type":"save", "player":{...}, "chunks":[...]}
-                try {
-                    int count = saveDataInternal(message);
-                    conn.send("{\"type\":\"saveAck\", \"count\":" + count + "}");
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    conn.send("{\"type\":\"error\", \"message\":\"Save failed\"}");
+                    String chunkData = getOrGenerateChunk(cx, cy);
+
+                    // Send back: {"type":"chunk", "key":"...", "data":"..."}
+                    // We construct JSON manually
+                    String response = "{\"type\":\"chunk\", \"key\":\"" + key + "\", \"data\":\"" + chunkData + "\"}";
+                    conn.send(response);
+                } else if ("save".equals(type)) {
+                    // Handle Save: {"type":"save", "player":{...}, "chunks":[...]}
+                    try {
+                        int count = saveDataInternal(message);
+                        conn.send("{\"type\":\"saveAck\", \"count\":" + count + "}");
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        conn.send("{\"type\":\"error\", \"message\":\"Save failed\"}");
+                    }
+                } else if ("setBlock".equals(type)) {
+                    // Handle Block Update: {"type":"setBlock", "x":10, "y":20, "val":1}
+                    String xStr = extractJsonString(message, "x");
+                    String yStr = extractJsonString(message, "y");
+                    String valStr = extractJsonString(message, "val");
+
+                    if (xStr != null && yStr != null && valStr != null) {
+                        try {
+                            int gx = Integer.parseInt(xStr); // Global X
+                            int gy = Integer.parseInt(yStr); // Global Y
+                            int val = Integer.parseInt(valStr);
+
+                            // Broadcast Immediately for responsiveness
+                            broadcast(message);
+
+                            // Persist to DB (ASync or blocking? Blocking for safety now)
+                            int cx = Math.floorDiv(gx, CHUNK_SIZE);
+                            int cy = Math.floorDiv(gy, CHUNK_SIZE);
+
+                            // Modulo logic for negative numbers using floorMod if needed, but Java % is
+                            // undefined for negs usually
+                            // We need local 0-15
+                            int lx = (gx % CHUNK_SIZE + CHUNK_SIZE) % CHUNK_SIZE;
+                            int ly = (gy % CHUNK_SIZE + CHUNK_SIZE) % CHUNK_SIZE;
+                            int idx = ly * CHUNK_SIZE + lx;
+
+                            String chunkData = getOrGenerateChunk(cx, cy);
+
+                            // Update comma-separated list [1,0,2...]
+                            // We need to parse the existing data string
+                            String currentData = chunkData;
+                            // Remove brackets if present (backward compatibility check)
+                            if (currentData.startsWith("[")) {
+                                currentData = currentData.substring(1, currentData.length() - 1);
+                            }
+
+                            String[] parts = currentData.split(",");
+                            if (idx >= 0 && idx < parts.length) {
+                                parts[idx] = String.valueOf(val);
+
+                                // Reconstruct
+                                StringBuilder sb = new StringBuilder();
+                                sb.append("[");
+                                for (int i = 0; i < parts.length; i++) {
+                                    sb.append(parts[i]);
+                                    if (i < parts.length - 1)
+                                        sb.append(",");
+                                }
+                                sb.append("]");
+                                String newData = sb.toString();
+
+                                // Save back
+                                try (Connection dbConn = DriverManager.getConnection(DB_URL);
+                                        PreparedStatement pstmt = dbConn
+                                                .prepareStatement("UPDATE chunks SET data = ? WHERE id = ?")) {
+                                    pstmt.setString(1, newData);
+                                    pstmt.setString(2, cx + "," + cy);
+                                    pstmt.executeUpdate();
+                                }
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    }
+                } else {
+                    // Legacy support or unknown
+                    // broadcast(message);
                 }
-            } else {
-                // Legacy support or unknown
-                // broadcast(message);
+            } catch (Exception e) {
+                System.err.println("Error processing message: " + message);
+                e.printStackTrace();
             }
         }
 
@@ -96,8 +167,11 @@ public class Main {
         }
 
         // Start WebSocket Server
-        GameWebSocketServer wsServer = new GameWebSocketServer(25566);
+        GameWebSocketServer wsServer = new GameWebSocketServer(25567);
         wsServer.start();
+
+        // Initialize Random Seed
+        initWorldGen(12345);
 
         try (Connection conn = DriverManager.getConnection(DB_URL);
                 Statement stmt = conn.createStatement()) {
@@ -134,20 +208,18 @@ public class Main {
             return;
         }
 
-        // Start HTTP Server
-        try (ServerSocket server = new ServerSocket(25565)) {
+        // Keep Server Alive
+        try {
             System.out.println("");
             System.out.println("========================================");
-            System.out.println("  Server is running!");
+            System.out.println("  WebSocket Server Running on Port 25566");
             System.out.println("========================================");
-            System.out.println("  Frontend URL: http://localhost:25565");
-            System.out.println("========================================");
-            System.out.println("");
+            System.out.println("  Press Ctrl+C to stop.");
+
             while (true) {
-                Socket client = server.accept();
-                new Thread(() -> handleClient(client)).start();
+                Thread.sleep(10000);
             }
-        } catch (IOException e) {
+        } catch (InterruptedException e) {
             e.printStackTrace();
         }
     }
@@ -238,86 +310,7 @@ public class Main {
         }
     }
 
-    private static void handleClient(Socket socket) {
-        try (
-                BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                OutputStream out = socket.getOutputStream()) {
-            String line = in.readLine();
-            if (line == null)
-                return;
-
-            // Read headers and get content length
-            int contentLength = 0;
-            String headerLine;
-            while ((headerLine = in.readLine()) != null && !headerLine.isEmpty()) {
-                if (headerLine.toLowerCase().startsWith("content-length:")) {
-                    contentLength = Integer.parseInt(headerLine.substring(15).trim());
-                }
-            }
-
-            if (line.startsWith("OPTIONS")) {
-                sendHeaders(out, 204, "text/plain", 0);
-            } else if (line.startsWith("POST /save")) {
-                System.out.println("Handling Save. Expecting " + contentLength + " bytes.");
-                // Read body
-                char[] bodyChars = new char[contentLength];
-                int totalRead = 0;
-                while (totalRead < contentLength) {
-                    int read = in.read(bodyChars, totalRead, contentLength - totalRead);
-                    if (read == -1)
-                        break; // End of stream
-                    totalRead += read;
-                }
-                String body = new String(bodyChars);
-                handleSaveRequest(body, out);
-            } else if (line.startsWith("GET /chunk")) {
-                if (!isWorldReady) {
-                    sendResponse(out, 503, "World Generating", "text/plain");
-                    return;
-                }
-                handleChunkRequest(line, out);
-            } else if (line.startsWith("GET /player")) {
-                handlePlayerRequest(out);
-            } else if (line.startsWith("GET /status")) {
-                // Always Online if we get here (Server blocks until ready)
-                sendResponse(out, 200, "{\"status\":\"Online\"}", "application/json");
-            } else {
-                // STATIC FILE SERVING
-                String path = line.split(" ")[1];
-                if (path.equals("/"))
-                    path = "/Frontend/index.html";
-
-                if (path.contains("..")) {
-                    sendResponse(out, 403, "Forbidden", "text/plain");
-                    return;
-                }
-
-                String localPath = path.substring(1).replace("/", File.separator);
-                File file = new File(localPath);
-
-                if (file.exists() && !file.isDirectory()) {
-                    String contentType = guessContentType(path);
-                    sendFile(out, 200, file, contentType);
-                } else {
-                    sendResponse(out, 404, "Not Found", "text/plain");
-                }
-            }
-        } catch (IOException e) {
-            // Check for broken pipe or connection reset which is common
-        }
-    }
-
-    private static void handleSaveRequest(String body, OutputStream out) throws IOException {
-        try {
-            int savedCount = saveDataInternal(body);
-            System.out.println("Saved " + savedCount + " chunks + player data");
-            sendResponse(out, 200, "{\"saved\":" + savedCount + "}", "application/json");
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            sendResponse(out, 500, "{\"error\":\"Save failed\"}", "application/json");
-        }
-    }
+    // --- Helpers (RESTORED) ---
 
     // Extracted logic for reuse in WebSocket
     private static int saveDataInternal(String body) throws SQLException {
@@ -368,20 +361,9 @@ public class Main {
 
                     int dataIdx = body.indexOf("\"data\":", keyPosInStr);
                     String data = extractJsonString(body, "data", dataIdx - 1); // allow some slack?
-                    // Actually extractJsonString looks forward from startIdx.
-                    // Let's use the robust manual parsing from before but wrapped?
-
-                    // Reverting to the robust loop manually because extractJsonString
-                    // might be too simple for nested structures if not careful.
-                    // But actually, let's just copy the robust loop logic back here
-                    // but cleaner if possible.
-                    // For now, I will preserve the original logic structure which was working.
 
                     int keyStart = body.indexOf("\"", idx + 6) + 1;
                     int keyEnd = body.indexOf("\"", keyStart);
-                    // String key = body.substring(keyStart, keyEnd); // Already have this from
-                    // extract?
-                    // Let's just stick to the indices logic which was proven (mostly).
 
                     // re-parsing using the indices logic:
                     key = body.substring(keyStart, keyEnd);
@@ -442,56 +424,6 @@ public class Main {
         return json.substring(valStart, valEnd);
     }
 
-    private static void handleChunkRequest(String request, OutputStream out) throws IOException {
-        try {
-            int xStart = request.indexOf("x=") + 2;
-            int xEnd = request.indexOf("&", xStart);
-            int yStart = request.indexOf("y=") + 2;
-            int yEnd = request.indexOf(" ", yStart);
-
-            int cx = Integer.parseInt(request.substring(xStart, xEnd));
-            int cy = Integer.parseInt(request.substring(yStart, yEnd));
-
-            String chunkData = getOrGenerateChunk(cx, cy);
-
-            // ESCAPE raw newlines for JSON safety (Fixes Black Block / Invalid JSON)
-            chunkData = chunkData.replace("\n", "\\n");
-
-            // Send as JSON String Literal "1010..."
-            sendResponse(out, 200, "\"" + chunkData + "\"", "application/json");
-        } catch (Exception e) {
-            // e.printStackTrace();
-            sendResponse(out, 400, "Bad Request", "text/plain");
-        }
-    }
-
-    private static void handlePlayerRequest(OutputStream out) throws IOException {
-        double x = 0;
-        double y = 0;
-        boolean found = false;
-        try (Connection conn = DriverManager.getConnection(DB_URL);
-                PreparedStatement pstmt = conn
-                        .prepareStatement("SELECT key, value FROM metadata WHERE key IN ('player_x', 'player_y')")) {
-            ResultSet rs = pstmt.executeQuery();
-            while (rs.next()) {
-                if (rs.getString("key").equals("player_x"))
-                    x = Double.parseDouble(rs.getString("value"));
-                if (rs.getString("key").equals("player_y"))
-                    y = Double.parseDouble(rs.getString("value"));
-                found = true;
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-
-        // Return JSON
-        if (found) {
-            sendResponse(out, 200, "{\"x\":" + x + ",\"y\":" + y + "}", "application/json");
-        } else {
-            sendResponse(out, 404, "{\"error\":\"No saved player\"}", "application/json");
-        }
-    }
-
     // --- SQLite Logic ---
 
     private static String getOrGenerateChunk(int cx, int cy) {
@@ -512,10 +444,6 @@ public class Main {
         }
 
         // 2. Generate (Fallback for Out of Bounds)
-        // If pre-gen is done, this mostly handles "infinite" beyond the border or
-        // missing chunks
-        // Reuse the same noise visual, but we might want to cache it?
-        // For now, doing it on the fly for missing chunks is fine.
         initWorldGen(12345); // Ensure initialized if falling back
         int[][] chunk = generateChunkPerlin(cx, cy);
         String dataStr = chunkToString(chunk);
@@ -541,7 +469,16 @@ public class Main {
         // Safe spawn zone in center
         double distFromCenter = Math.sqrt(cx * cx + cy * cy);
         if (distFromCenter < 2) {
-            return chunk; // All 0 (dirt only, safe spawn)
+            return chunk; // All 0 (Deep Water/Spawn safe zone? Maybe set to Grass for spawn?)
+            // Let's make spawn always Grass (4) to avoid spawning in water
+        }
+        if (distFromCenter < 2) {
+            for (int y = 0; y < CHUNK_SIZE; y++) {
+                for (int x = 0; x < CHUNK_SIZE; x++) {
+                    chunk[y][x] = 2; // Grass (Safe Spawn)
+                }
+            }
+            return chunk;
         }
 
         for (int y = 0; y < CHUNK_SIZE; y++) {
@@ -549,84 +486,59 @@ public class Main {
                 double worldX = cx * CHUNK_SIZE + x;
                 double worldY = cy * CHUNK_SIZE + y;
 
-                // Multi-octave Perlin for more natural terrain
-                // Large scale features (continents/islands)
-                double large = getNoise(worldX * 0.02, worldY * 0.02) * 1.0;
-                // Medium scale features (hills/valleys)
-                double medium = getNoise(worldX * 0.05, worldY * 0.05) * 0.5;
-                // Small details
-                double small = getNoise(worldX * 0.1, worldY * 0.1) * 0.25;
+                // 1. Height Noise (Elevation) - Determines Water vs Land
+                double hLarge = getNoise(worldX * 0.01, worldY * 0.01) * 1.0;
+                double hSmall = getNoise(worldX * 0.05, worldY * 0.05) * 0.5;
+                double height = hLarge + hSmall; // Approx range -1.5 to 1.5
 
-                double val = large + medium + small;
+                // 2. Density Noise (Moisture/Vegetation) - Determines Biome Type
+                // Offset coordinates to make it distinct from height
+                double dLarge = getNoise((worldX + 5000) * 0.01, (worldY + 5000) * 0.01) * 1.0;
+                double dSmall = getNoise((worldX + 5000) * 0.05, (worldY + 5000) * 0.05) * 0.5;
+                double density = dLarge + dSmall;
 
-                // Threshold - grass if above 0.1
-                chunk[y][x] = val > 0.1 ? 1 : 0;
+                // Biome Logic
+                int blockID;
+
+                if (height < -0.2) {
+                    blockID = 1; // Deep Ocean -> Ocean
+                } else if (height < 0.0) {
+                    blockID = 1; // Ocean / Shallow Water
+                } else {
+                    // Land (Height >= 0)
+                    if (height < 0.1) {
+                        blockID = 3; // Sand (Beach)
+                    } else {
+                        // Inland
+                        if (density < -0.1) {
+                            blockID = 3; // Sand (Desert)
+                        } else if (density < 0.2) {
+                            blockID = 0; // Dirt
+                        } else {
+                            blockID = 2; // Grass
+                        }
+                    }
+                }
+                chunk[y][x] = blockID;
             }
         }
         return chunk;
     }
 
-    // Convert 2D int array to flat "101010..." String (256 chars, no newlines)
+    // Convert 2D int array to JSON-like Array String "[1,0,2,...]"
     private static String chunkToString(int[][] chunk) {
         StringBuilder sb = new StringBuilder();
+        sb.append("[");
         for (int r = 0; r < chunk.length; r++) {
             for (int c = 0; c < chunk[r].length; c++) {
                 sb.append(chunk[r][c]);
+                if (r != chunk.length - 1 || c != chunk[r].length - 1) {
+                    sb.append(",");
+                }
             }
         }
+        sb.append("]");
         return sb.toString();
-    }
-
-    // ... (Helpers) ...
-
-    private static String guessContentType(String path) {
-        if (path.endsWith(".html"))
-            return "text/html";
-        if (path.endsWith(".js"))
-            return "application/javascript";
-        if (path.endsWith(".css"))
-            return "text/css";
-        if (path.endsWith(".png"))
-            return "image/png";
-        if (path.endsWith(".jpg"))
-            return "image/jpeg";
-        if (path.endsWith(".json"))
-            return "application/json";
-        if (path.endsWith(".ttf"))
-            return "font/ttf";
-        if (path.endsWith(".wasm"))
-            return "application/wasm";
-        if (path.endsWith(".db") || path.endsWith(".sqlite"))
-            return "application/x-sqlite3";
-        return "application/octet-stream";
-    }
-
-    private static void sendFile(OutputStream out, int code, File file, String contentType) throws IOException {
-        long length = file.length();
-        sendHeaders(out, code, contentType, length);
-        Files.copy(file.toPath(), out);
-        out.flush();
-    }
-
-    private static void sendResponse(OutputStream out, int code, String body, String contentType) throws IOException {
-        byte[] bytes = body.getBytes();
-        sendHeaders(out, code, contentType, bytes.length);
-        out.write(bytes);
-        out.flush();
-    }
-
-    private static void sendHeaders(OutputStream out, int code, String contentType, long length) throws IOException {
-        String status = (code == 200 || code == 204) ? "OK" : "Error";
-        String headers = "HTTP/1.1 " + code + " " + status + "\r\n" +
-                "Access-Control-Allow-Origin: *\r\n" +
-                "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n" +
-                "Access-Control-Allow-Headers: *\r\n" +
-                "Access-Control-Allow-Private-Network: true\r\n" +
-                "Connection: close\r\n" +
-                "Content-Type: " + contentType + "\r\n" +
-                "Content-Length: " + length + "\r\n" +
-                "\r\n";
-        out.write(headers.getBytes());
     }
 
     // --- Perlin Noise Logic (Embedded) ---
