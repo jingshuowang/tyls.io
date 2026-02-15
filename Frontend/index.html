@@ -459,7 +459,7 @@
             // config defined in variables.js
 
             // Try to load config.json, then initialize game
-            fetch('config.json')
+            fetch('../config.json')
                 .then(res => res.json())
                 .then(data => {
                     config = { ...config, ...data };
@@ -1576,7 +1576,8 @@
                     return;
                 }
                 try {
-                    socket = new WebSocket('ws://localhost:25567');
+                    const wsPort = parseInt(location.port) + 1;
+                    socket = new WebSocket(`ws://${location.hostname}:${wsPort}`);
                     window.socket = socket; // Make socket globally accessible for getChunk
 
                     socket.onopen = () => {

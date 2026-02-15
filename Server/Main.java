@@ -3,6 +3,8 @@ package Server;
 import org.java_websocket.server.WebSocketServer;
 import org.java_websocket.WebSocket;
 import org.java_websocket.handshake.ClientHandshake;
+import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpExchange;
 import java.io.*;
 import java.net.*;
 import java.nio.file.*;
@@ -13,6 +15,8 @@ public class Main {
     private static final int CHUNK_SIZE = 16;
     private static final String DB_URL = "jdbc:sqlite:world.db";
     private static final int WORLD_RADIUS_CHUNKS = 512; // 1024x1024 chunks total (~1M)
+    private static final int HTTP_PORT = 8001;
+    private static final int WS_PORT = 8002;
 
     // Async Progress Tracking
     private static volatile boolean isWorldReady = false;
@@ -167,7 +171,7 @@ public class Main {
         }
 
         // Start WebSocket Server
-        GameWebSocketServer wsServer = new GameWebSocketServer(25567);
+        GameWebSocketServer wsServer = new GameWebSocketServer(WS_PORT);
         wsServer.start();
 
         // Initialize Random Seed
@@ -208,11 +212,22 @@ public class Main {
             return;
         }
 
+        // Start HTTP Server for Static Files
+        try {
+            startHttpServer();
+        } catch (IOException e) {
+            System.err.println("Failed to start HTTP Server: " + e.getMessage());
+            return;
+        }
+
         // Keep Server Alive
         try {
             System.out.println("");
             System.out.println("========================================");
-            System.out.println("  WebSocket Server Running on Port 25566");
+            System.out.println("  tyls.io Server Ready!");
+            System.out.println("  HTTP:      http://localhost:" + HTTP_PORT);
+            System.out.println("  WebSocket: ws://localhost:" + WS_PORT);
+            System.out.println("  Game:      http://localhost:" + HTTP_PORT + "/Frontend/index.html");
             System.out.println("========================================");
             System.out.println("  Press Ctrl+C to stop.");
 
@@ -221,6 +236,109 @@ public class Main {
             }
         } catch (InterruptedException e) {
             e.printStackTrace();
+        }
+    }
+
+    // --- HTTP Static File Server ---
+    private static void startHttpServer() throws IOException {
+        HttpServer httpServer = HttpServer.create(new InetSocketAddress(HTTP_PORT), 0);
+
+        // MIME type mapping
+        final Map<String, String> MIME_TYPES = new HashMap<>();
+        MIME_TYPES.put(".html", "text/html");
+        MIME_TYPES.put(".js", "application/javascript");
+        MIME_TYPES.put(".css", "text/css");
+        MIME_TYPES.put(".json", "application/json");
+        MIME_TYPES.put(".png", "image/png");
+        MIME_TYPES.put(".jpg", "image/jpeg");
+        MIME_TYPES.put(".gif", "image/gif");
+        MIME_TYPES.put(".svg", "image/svg+xml");
+        MIME_TYPES.put(".ttf", "font/ttf");
+        MIME_TYPES.put(".woff", "font/woff");
+        MIME_TYPES.put(".woff2", "font/woff2");
+        MIME_TYPES.put(".wasm", "application/wasm");
+        MIME_TYPES.put(".mp3", "audio/mpeg");
+        MIME_TYPES.put(".ogg", "audio/ogg");
+        MIME_TYPES.put(".wav", "audio/wav");
+        MIME_TYPES.put(".ico", "image/x-icon");
+
+        // Project root directory (where the server is launched from)
+        final Path ROOT = Paths.get(".").toAbsolutePath().normalize();
+
+        httpServer.createContext("/", exchange -> {
+            String method = exchange.getRequestMethod();
+
+            // Handle CORS preflight
+            if ("OPTIONS".equalsIgnoreCase(method)) {
+                exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, OPTIONS");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "*");
+                exchange.sendResponseHeaders(204, -1);
+                exchange.close();
+                return;
+            }
+
+            String path = exchange.getRequestURI().getPath();
+
+            // Default to index
+            if (path.equals("/")) {
+                path = "/Frontend/index.html";
+            }
+
+            // Security: Block path traversal
+            if (path.contains("..")) {
+                sendError(exchange, 403, "Forbidden");
+                return;
+            }
+
+            // Security: Block access to server source and lib
+            String lowerPath = path.toLowerCase();
+            if (lowerPath.startsWith("/server/") || lowerPath.startsWith("/lib/") ||
+                    lowerPath.startsWith("/.git")) {
+                sendError(exchange, 403, "Forbidden");
+                return;
+            }
+
+            // Resolve file
+            Path filePath = ROOT.resolve(path.substring(1)).normalize();
+
+            // Ensure resolved path is still within project root
+            if (!filePath.startsWith(ROOT)) {
+                sendError(exchange, 403, "Forbidden");
+                return;
+            }
+
+            if (!Files.exists(filePath) || Files.isDirectory(filePath)) {
+                sendError(exchange, 404, "Not Found: " + path);
+                return;
+            }
+
+            // Determine MIME type
+            String fileName = filePath.getFileName().toString();
+            String ext = fileName.contains(".") ? fileName.substring(fileName.lastIndexOf('.')) : "";
+            String mimeType = MIME_TYPES.getOrDefault(ext.toLowerCase(), "application/octet-stream");
+
+            // Send response
+            byte[] fileBytes = Files.readAllBytes(filePath);
+            exchange.getResponseHeaders().add("Content-Type", mimeType);
+            exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+            exchange.getResponseHeaders().add("Cache-Control", "no-cache"); // Dev-friendly
+            exchange.sendResponseHeaders(200, fileBytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(fileBytes);
+            }
+        });
+
+        httpServer.setExecutor(null); // Default executor
+        httpServer.start();
+        System.out.println("HTTP Server started on port: " + HTTP_PORT);
+    }
+
+    private static void sendError(HttpExchange exchange, int code, String message) throws IOException {
+        byte[] resp = message.getBytes();
+        exchange.sendResponseHeaders(code, resp.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(resp);
         }
     }
 
@@ -602,6 +720,7 @@ public class Main {
 
     private static double grad(int hash, double x, double y) {
         int h = hash & 15;
+        @SuppressWarnings("unused")
         double u = h < 8 ? x : y;
         double v = h < 4 ? y : (h == 12 || h == 14 ? x : 0);
         return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
