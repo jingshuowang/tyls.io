@@ -136,7 +136,7 @@
 
         // Configuration (Overridden by config.json)
         let config = {
-            playerSpeed: 200,
+            playerSpeed: 60, // Lowered from 200 -> 60 (Slower, more controlled)
             defaultZoom: 3.0,
             minZoom: 0.25,
             maxZoom: 10,
@@ -156,7 +156,7 @@
 
         // Entitiessd
         const camera = { x: 0, y: 0, zoom: 3.0, freelook: false };
-        const player = { x: 128, y: 128, width: 16, height: 16, speed: 200 };
+        const player = { x: 128, y: 128, width: 16, height: 16, speed: 60 }; // Synced with config
         const mouse = { x: 0, y: 0, left: false, right: false, lastX: undefined, lastY: undefined };
 
         // Interaction
@@ -203,22 +203,66 @@
             }
         }
 
+        // Activity Indicator Logic
+        function updateActivity() {
+            const activity = document.getElementById('activity');
+            if (pressedKeys.size === 0) {
+                activity.classList.remove('flash');
+            } else {
+                const keyList = Array.from(pressedKeys).join(' + ');
+                activity.textContent = keyList;
+                // if (isAltPressed) activity.textContent += " (FREELOOK)"; // Removed user request
+                activity.classList.add('flash');
+            }
+        }
+
         // Key Listeners
         window.addEventListener('keydown', (e) => {
+            // ALWAYS prevent default for game keys
+            if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "Alt"].indexOf(e.key) > -1) {
+                e.preventDefault();
+            }
+
+            if (e.key === 'Alt') {
+                if (!e.repeat) { // Toggle on single press
+                    isAltPressed = !isAltPressed;
+                    if (typeof camera !== 'undefined') camera.freelook = isAltPressed;
+
+                    // Update UI immediately
+                    updateActivity();
+                }
+            }
+
+            if (e.key.toLowerCase() === 'g') {
+                window.showGrid = !window.showGrid;
+            }
+
             if (keys[e.key]) return; // distinct press check
             keys[e.key] = true;
-            if (e.key === 'Alt') isAltPressed = true;
 
-            // HOTBAR / OFFHAND LOGIC
-            // Hotbar keys disabled per user request to keep UI logic in prototype
-            // if (e.key === '1') ...
-            // if (e.key === '2') ...
-            // Key 3 (Offhand) Removed
-            // if (e.key === '3') { ... }
+            // Track pressed keys for UI
+            let keyName = e.key;
+            if (keyName === ' ') keyName = 'Space';
+            if (keyName.length === 1) keyName = keyName.toUpperCase();
+            pressedKeys.add(keyName);
+            updateActivity();
         });
+
         window.addEventListener('keyup', (e) => {
             keys[e.key] = false;
-            if (e.key === 'Alt') isAltPressed = false;
+
+            // Alt Key Toggle Logic moved to keydown (removed hold behavior)
+            if (e.key === 'Alt') {
+                e.preventDefault();
+                // do nothing on keyup
+            }
+
+            // Remove from UI
+            let keyName = e.key;
+            if (keyName === ' ') keyName = 'Space';
+            if (keyName.length === 1) keyName = keyName.toUpperCase();
+            pressedKeys.delete(keyName);
+            updateActivity();
         });
     </script>
     <script>
@@ -244,7 +288,8 @@
             await app.init({
                 width: window.innerWidth,
                 height: window.innerHeight,
-                backgroundColor: 0x1a1a1a,
+                backgroundColor: 0x000000,
+                backgroundAlpha: 0, // Transparent background
                 antialias: false,
                 roundPixels: true,  // Pixel-perfect rendering
                 preference: 'maximum-performance', // Hint to browser
@@ -277,8 +322,14 @@
             // Layers for Z-sorting (global 'dirtLayer', 'grassLayer')
             dirtLayer = new PIXI.Container();
             grassLayer = new PIXI.Container();
+
+            // Explicit Rendering Order (Z-Index)
+            dirtLayer.zIndex = 0;   // Bottom
+            grassLayer.zIndex = 10; // Top
+
             world.addChild(dirtLayer);
             world.addChild(grassLayer);
+
 
             // Track hovered tile position (Global from variables.js)
             // let hoveredTileX = null;
@@ -587,26 +638,18 @@
                 // Exponential zoom - ONLY in freelook mode
                 // Exponential zoom - ONLY in freelook mode (Mouse-Centered)
                 app.canvas.addEventListener('wheel', (e) => {
-                    if (!isAltPressed) return; // Only zoom when Alt is pressed
+                    // Zoom works in all modes (User request)
+                    // if (!isAltPressed) return; 
                     e.preventDefault();
 
                     const oldZoom = camera.zoom;
                     const zoomFactor = e.deltaY < 0 ? 1.25 : 0.8;
                     const newZoom = Math.max(config.minZoom, Math.min(config.maxZoom, oldZoom * zoomFactor));
 
-                    // Mouse-centered zoom logic
+                    // Mouse-centered zoom logic REMOVED -> Screen Center Zoom
                     if (newZoom !== oldZoom) {
-                        const halfW = app.screen.width / 2;
-                        const halfH = app.screen.height / 2;
-                        // e.clientX/Y are mostly correct for canvas if full screen
-                        const mouseX = e.clientX;
-                        const mouseY = e.clientY;
-
-                        // Adjust camera position to keep the point under mouse stationary
-                        // Formula: newCam = oldCam + (mousePos - center) * (1/oldZoom - 1/newZoom)
-                        camera.x += (mouseX - halfW) * (1 / oldZoom - 1 / newZoom);
-                        camera.y += (mouseY - halfH) * (1 / oldZoom - 1 / newZoom);
-
+                        // Just update zoom. Because world.x/y are calculated based on screen center (width/2, height/2),
+                        // changing zoom while keeping camera.x/y constant automatically zooms towards the screen center.
                         camera.zoom = newZoom;
                     }
                 });
@@ -619,76 +662,8 @@
                 }, 5000);
                 */
 
-                // Keyboard
-                // Keyboard (Global in variables.js)
-                // const keys = {};
-                // let showGrid = false;
-                // let isAltPressed = false; 
-
-                // Activity indicator - track currently pressed keys
-                // let pressedKeys = new Set();
-                let fadeTimeout = null;
-
-                function updateActivity() {
-                    const activity = document.getElementById('activity');
-                    if (pressedKeys.size === 0) {
-                        // Fade out when no keys pressed
-                        activity.classList.remove('flash');
-                    } else {
-                        // Show all pressed keys with + between them
-                        const keyList = Array.from(pressedKeys).join(' + ');
-                        activity.textContent = keyList;
-                        activity.classList.add('flash');
-                    }
-                }
-
-                window.addEventListener('keydown', (e) => {
-                    keys[e.key.toLowerCase()] = true;
-
-                    // Toggle Alt mode (press Alt to toggle on/off)
-                    if (e.key === 'Alt' && !e.repeat) {
-                        isAltPressed = !isAltPressed;
-                        camera.freelook = isAltPressed;
-
-                        if (isAltPressed) {
-                            // Entering freelook
-                            app.canvas.style.cursor = 'default'; // Visible cursor for freelook
-                            document.getElementById('info').textContent = 'FREELOOK MODE - Drag to pan, Scroll to zoom, Alt to exit';
-                        } else {
-                            // Exiting freelook - snap camera back to player and reset zoom
-                            camera.x = player.x + player.width / 2;
-                            camera.y = player.y + player.height / 2;
-                            camera.zoom = config.defaultZoom; // Reset to default zoom (2.0)
-                            app.canvas.style.cursor = 'none'; // Hide cursor for gameplay
-                        }
-                        e.preventDefault();
-                    }
-
-                    // Add key to pressed set
-                    let keyName = e.key;
-                    if (keyName === ' ') keyName = 'Space';
-                    if (keyName.length === 1) keyName = keyName.toUpperCase();
-                    pressedKeys.add(keyName);
-                    updateActivity();
-
-                    if (e.key.toLowerCase() === 'g') {
-                        showGrid = !showGrid;
-                    }
-                });
-
-                window.addEventListener('keyup', (e) => {
-                    keys[e.key.toLowerCase()] = false;
-
-                    // Remove key from pressed set
-                    let keyName = e.key;
-                    if (keyName === ' ') keyName = 'Space';
-                    if (keyName.length === 1) keyName = keyName.toUpperCase();
-                    pressedKeys.delete(keyName);
-                    updateActivity();
-                });
-
-                // Grass tile mapping (from README)
-                const GRASS_MAP = {
+                // Generalized Dual Grid Mapping (Works for Grass, Sand, Water)
+                const DUAL_GRID_MAP = {
                     '0000': 12, // The Void
                     '1000': 15, // Inner Corner - Top Left
                     '0100': 8,  // Inner Corner - Top Right
@@ -707,16 +682,16 @@
                     '1111': 6   // Full Solid
                 };
 
-                function getGrassIdx(x, y) {
-                    // Check 4 corners: TL, TR, BL, BR
-                    // F (filled/grass) = 1, E (empty/dirt) = 0
-                    // Use getTileSafe to avoid triggering chunk fetches
-                    const tl = getTileSafe(x, y) === 1 ? '1' : '0';
-                    const tr = getTileSafe(x + 1, y) === 1 ? '1' : '0';
-                    const bl = getTileSafe(x, y + 1) === 1 ? '1' : '0';
-                    const br = getTileSafe(x + 1, y + 1) === 1 ? '1' : '0';
+                function getDualGridIdx(x, y, targetId) {
+                    // Check 4 corners: TL, TR, BL, BR relative to the dual grid intersection
+                    // "If block isn't itself then act as it is air (0), if it is then its 1"
+                    const tl = getTileSafe(x, y) === targetId ? '1' : '0';
+                    const tr = getTileSafe(x + 1, y) === targetId ? '1' : '0';
+                    const bl = getTileSafe(x, y + 1) === targetId ? '1' : '0';
+                    const br = getTileSafe(x + 1, y + 1) === targetId ? '1' : '0';
+
                     const key = tl + tr + bl + br;
-                    return GRASS_MAP[key] !== undefined ? GRASS_MAP[key] : 6;
+                    return DUAL_GRID_MAP[key] !== undefined ? DUAL_GRID_MAP[key] : 6;
                 }
 
                 // Create placeholder texture when image files are missing
@@ -749,8 +724,8 @@
                     const [dirt, grass, water, sand, select, crosshair] = await Promise.all([
                         loadTexture('../Assets/Image/Tile/dirt.png', 0x8B4513),
                         loadTexture('../Assets/Image/Tile/grass.png', 0x228B22),
-                        loadTexture('../Assets/Image/Tile/water.png', 0x1E90FF),
-                        loadTexture('../Assets/Image/Tile/sand.png', 0xF4A460),
+                        loadTexture('../TempImage/water.png', 0x1E90FF),
+                        loadTexture('../TempImage/sand.png', 0xF4A460),
                         PIXI.Assets.load('../Assets/Image/select.png').catch((e) => {
                             console.warn('select.png missing', e);
                             const c = document.createElement('canvas');
@@ -782,11 +757,14 @@
                     const crosshairTex = assets.crosshair;
 
                     // Setup Block Highlight (using loaded texture)
-                    // Assumes horizontal sprite sheet (32x16)
+                    // "Select Theorem" Correction: 2-Slice Vertical Strip (Top=Normal, Bottom=Pressed)
+
                     const selectTexNormal = new PIXI.Texture({
                         source: selectTex.source,
                         frame: new PIXI.Rectangle(0, 0, TILE_SIZE, TILE_SIZE)
                     });
+
+                    // Frame 2 is at x=0, y=16 (Vertical Strip)
                     const selectTexPressed = new PIXI.Texture({
                         source: selectTex.source,
                         frame: new PIXI.Rectangle(0, TILE_SIZE, TILE_SIZE, TILE_SIZE)
@@ -795,9 +773,16 @@
                     selectSprite = new PIXI.Sprite(selectTexNormal);
                     selectSprite.width = TILE_SIZE;
                     selectSprite.height = TILE_SIZE;
+
                     selectSprite.visible = false;
-                    selectSprite.zIndex = 1000; // Ensure it's always on top
+                    selectSprite.zIndex = 1000;
                     world.addChild(selectSprite);
+
+                    // Re-attach check
+                    if (!app.stage.children.includes(world)) {
+                        app.stage.addChild(world);
+                        console.log("World container re-attached to stage.");
+                    }
 
                     // Setup Crosshair Sprite (REMOVED: Using HTML Follower)
                     /*
@@ -948,6 +933,28 @@
 
                     let lastTime = performance.now();
 
+                    // Handle Input (Restored)
+                    function hi(delta) {
+                        if (!player) return;
+                        // Use a fixed speed multiplier or delta
+                        // loop passes 1, so speed is per-tick
+                        const speed = player.speed * delta;
+                        let dx = 0, dy = 0;
+
+                        if (keys['w'] || keys['arrowup']) dy -= 1;
+                        if (keys['s'] || keys['arrowdown']) dy += 1;
+                        if (keys['a'] || keys['arrowleft']) dx -= 1;
+                        if (keys['d'] || keys['arrowright']) dx += 1;
+
+                        if (dx !== 0 && dy !== 0) {
+                            dx *= 0.7071;
+                            dy *= 0.7071;
+                        }
+
+                        player.x += dx * speed;
+                        player.y += dy * speed;
+                    }
+
                     // WRAPPED Game Loop (Started after loading)
                     function startGameLoop() {
                         let lastTime = performance.now();
@@ -996,39 +1003,54 @@
                                 moveY *= 0.707;
                             }
 
-                            // Movement logic - Uses hi(delta)
-                            if (!isAltPressed) {
-                                hi(1); // Delta handled inside or constant? hi() uses player.speed * delta / 60
-                                // hi expects delta. Ticker gives it.
+                            // Move Player Sprite
+                            if (player.sprite) {
+                                player.sprite.x = player.x;
+                                player.sprite.y = player.y;
                             }
-                            // Local Camera Update (Client prediction)
-                            camera.x = player.x + player.width / 2;
-                            camera.y = player.y + player.height / 2;
 
-                            // Trigger Auto-Save on movement (Debounced)
-                            if (keys['w'] || keys['s'] || keys['a'] || keys['d']) {
-                                triggerSave();
+                            // Movement logic - Uses hi(delta)
+                            function hi(delta) {
+                                if (!player) return;
+                                // Convert Pixels Per Second to Pixels Per Frame
+                                const speed = player.speed * (delta / 60);
+                                let dx = 0, dy = 0;
+
+                                if (keys['w'] || keys['arrowup']) dy -= 1;
+                                if (keys['s'] || keys['arrowdown']) dy += 1;
+                                if (keys['a'] || keys['arrowleft']) dx -= 1;
+                                if (keys['d'] || keys['arrowright']) dx += 1;
+
+                                if (dx !== 0 && dy !== 0) {
+                                    dx *= 0.7071;
+                                    dy *= 0.7071;
+                                }
+
+                                player.x += dx * speed;
+                                player.y += dy * speed;
                             }
-                            // In freelook mode, camera is moved by mouse drag only (no WASD)
+
+                            if (!isAltPressed) {
+                                hi(1);
+                            }
+
+                            // Sync Camera to Player Position
+                            // ONLY if not in Freelook Mode (Alt Pressed)
+                            if (player && !isAltPressed) {
+                                camera.x = player.x;
+                                camera.y = player.y;
+                            }
+                            // World transform applied ONCE at end of frame (line ~1155)
 
                             // Update stats (FPS, location, zoom) with null checks
                             const fps = Math.round(app.ticker.FPS || 0);
                             const locX = player ? Math.floor(player.x) : 0;
                             const locY = player ? Math.floor(player.y) : 0;
                             const zoom = camera ? camera.zoom.toFixed(2) : '0.00';
-                            const infoElement = document.getElementById('info');
-                            if (infoElement) {
-                                infoElement.textContent = `FPS: ${fps} | x: ${locX} y: ${locY} | Zoom: ${zoom}x`;
-                            }
 
-                            // Update world-mouse interaction every frame (fixes "laggy" highlight on camera move)
-                            // Calculate world coordinates from mouse screen position
-                            // world.x/y are the screen center offsets? No, world transform is: 
-                            // world.x = -camera.x * zoom + screenW/2
-                            // mouseScreen = worldPos * zoom + world.x
-                            // worldPos = (mouseScreen - world.x) / zoom
+                            // Info update moved to updateInfoDisplay() (Refactored)
 
-                            // Use world.scale.x which is set to camera.zoom in this loop
+                            // Update world-mouse interaction
                             if (world.scale.x !== 0) {
                                 const worldX = (mouse.x - world.x) / world.scale.x;
                                 const worldY = (mouse.y - world.y) / world.scale.y;
@@ -1041,6 +1063,21 @@
                             if (hoveredTileX !== null && hoveredTileY !== null) {
                                 selectSprite.x = hoveredTileX * TILE_SIZE;
                                 selectSprite.y = hoveredTileY * TILE_SIZE;
+                                selectSprite.visible = !isAltPressed; // Hide in freelook
+                            }
+
+                            // Define setTile if missing (Wrapper for WS)
+                            if (typeof window.setTile !== 'function') {
+                                window.setTile = function (x, y, val) {
+                                    if (socket && socket.readyState === WebSocket.OPEN) {
+                                        socket.send(JSON.stringify({
+                                            type: 'setBlock',
+                                            x: x,
+                                            y: y,
+                                            val: val
+                                        }));
+                                    }
+                                };
                             }
 
                             // Handle input (left=break/dirt, right=place/grass)
@@ -1184,75 +1221,108 @@
                                 }
 
                                 const chunk = getChunk(cx, cy);
+                                if (!chunk) return; // Safety check
+
                                 const chunkDirt = new PIXI.Container();
                                 const chunkGrass = new PIXI.Container();
+
+                                try {
+                                    // 1. DIRT BACKGROUND (Base Layer)
+                                    // Robust Pattern Creation: Create a standalone texture for TilingSprite
+                                    // to avoid WebGL sub-texture tiling issues.
+                                    if (!dirtPatternTex) {
+                                        const c = document.createElement('canvas');
+                                        c.width = TILE_SIZE; c.height = TILE_SIZE;
+                                        const ctx = c.getContext('2d');
+
+                                        // Attempt to draw frame 6 from source
+                                        const src = dirtTex.source.resource;
+                                        if (src && (src instanceof HTMLImageElement || src instanceof ImageBitmap)) {
+                                            // Frame 6 corresponds to col 2, row 1 in 4x4 grid (Indices: 0,1,2,3 / 4,5,6,7)
+                                            // Wait: Index 6. Row = floor(6/4) = 1. Col = 6%4 = 2.
+                                            // 16px tiles.
+                                            ctx.drawImage(src, 32, 16, 16, 16, 0, 0, 16, 16);
+                                        } else {
+                                            // Fallback: Solid Dirt Color
+                                            ctx.fillStyle = '#5d4037'; // Dark dirt brown
+                                            ctx.fillRect(0, 0, 16, 16);
+                                        }
+                                        dirtPatternTex = PIXI.Texture.from(c);
+                                    }
+
+                                    const chunkBg = new PIXI.TilingSprite({
+                                        texture: dirtPatternTex,
+                                        width: CHUNK_SIZE * TILE_SIZE,
+                                        height: CHUNK_SIZE * TILE_SIZE
+                                    });
+                                    chunkDirt.addChild(chunkBg);
+                                } catch (e) {
+                                    console.error('Error creating chunk background:', e);
+                                    // Fallback to prevent crash
+                                }
+
+                                // LOD: ...
 
                                 // LOD: If zoomed out below threshold, render simple colored tiles (Minimap style)
                                 if (camera.zoom < config.lodThreshold) {
                                     const graphics = new PIXI.Graphics();
-
-                                    // Draw each tile as a simple colored rectangle
                                     for (let ty = 0; ty < CHUNK_SIZE; ty++) {
                                         for (let tx = 0; tx < CHUNK_SIZE; tx++) {
                                             const tileVal = chunk[ty][tx];
-                                            const color = tileVal === 1 ? avgGrassColor : avgDirtColor;
+                                            // Simple color mapping for LOD
+                                            let color = avgDirtColor;
+                                            if (tileVal === 1) color = 0x1E90FF; // Water
+                                            else if (tileVal === 2) color = avgGrassColor; // Grass
+                                            else if (tileVal === 3) color = 0xF4A460; // Sand
 
                                             graphics.beginFill(color);
                                             graphics.drawRect(
                                                 (cx * CHUNK_SIZE + tx) * TILE_SIZE,
                                                 (cy * CHUNK_SIZE + ty) * TILE_SIZE,
-                                                TILE_SIZE,
-                                                TILE_SIZE
+                                                TILE_SIZE, TILE_SIZE
                                             );
                                             graphics.endFill();
                                         }
                                     }
-
                                     chunkDirt.addChild(graphics);
                                     chunkContainers.set(key, { dirt: chunkDirt, grass: chunkGrass });
-
                                     dirtLayer.addChild(chunkDirt);
-
                                     return;
                                 }
 
-                                // Render all tiles in this chunk
+                                // 2. FEATURE TILES (Water, Grass, Sand)
+                                // Render on top of the Dirt Background using Dual Grid texturing
+                                // IDs: 0=Dirt, 1=Water, 2=Grass, 3=Sand
                                 for (let ty = 0; ty < CHUNK_SIZE; ty++) {
                                     for (let tx = 0; tx < CHUNK_SIZE; tx++) {
                                         const worldX = cx * CHUNK_SIZE + tx;
                                         const worldY = cy * CHUNK_SIZE + ty;
-                                        const tileVal = getTileSafe(worldX, worldY);
+                                        const tileVal = chunk[ty][tx];
 
-                                        // Simple Biome Rendering (No dual-grid for now, just tiles)
+                                        if (tileVal === 0) continue; // Skip Dirt (Handled by Background Layer)
+
                                         let tex = null;
-                                        let layer = dirtLayer;
+                                        let layer = chunkDirt; // Default layer (Base/Water/Sand)
 
-                                        // IDs: 0=Dirt, 1=Ocean/Water, 2=Grass, 3=Sand
-                                        if (tileVal === 1) {
-                                            tex = waterTex;
-                                        } else if (tileVal === 3) {
-                                            tex = sandTex;
-                                        } else if (tileVal === 0) {
-                                            tex = dirtTex;
-                                        } else if (tileVal === 2) {
-                                            tex = grassTex;
-                                            layer = grassLayer;
+                                        if (tileVal === 1) { // Water
+                                            const idx = getDualGridIdx(worldX, worldY, 1);
+                                            tex = getTileTexture(waterTex, idx);
+                                        } else if (tileVal === 2) { // Grass
+                                            const idx = getDualGridIdx(worldX, worldY, 2);
+                                            tex = getTileTexture(grassTex, idx);
+                                            layer = chunkGrass; // Grass goes to upper layer (z=10)
+                                        } else if (tileVal === 3) { // Sand
+                                            const idx = getDualGridIdx(worldX, worldY, 3);
+                                            tex = getTileTexture(sandTex, idx);
                                         }
 
                                         if (tex) {
                                             const sprite = new PIXI.Sprite(tex);
-                                            sprite.x = worldX * TILE_SIZE;
-                                            sprite.y = worldY * TILE_SIZE;
+                                            // Dual Grid Offset: Center sprite on intersection (Bottom-Right of logical tile)
+                                            sprite.x = worldX * TILE_SIZE + (TILE_SIZE / 2);
+                                            sprite.y = worldY * TILE_SIZE + (TILE_SIZE / 2);
                                             sprite.width = TILE_SIZE;
                                             sprite.height = TILE_SIZE;
-
-                                            // For Grass (Dual Grid), we might need special logic, 
-                                            // but for now, simple tile rendering to verify biomes.
-                                            // Only use Dual Grid logic if user explicitly demands it for this verification step.
-                                            // User said "all images except for dirt... is in dual gridding format".
-                                            // This suggests standard tile rendering might fail visually for Grass/Sand/Water.
-                                            // But we need to see *something* first.
-
                                             layer.addChild(sprite);
                                         }
                                     }
@@ -1335,30 +1405,45 @@
                                     }
                                 }
 
-                                // Remove chunks that are out of range
+                                // Remove chunks that are WAY out of range (Hysteresis for Caching)
+                                // Don't destroy immediately if just off-screen.
+                                const camChunkX = Math.floor(camera.x / (TILE_SIZE * CHUNK_SIZE));
+                                const camChunkY = Math.floor(camera.y / (TILE_SIZE * CHUNK_SIZE));
+
+                                // In Freelook, keep chunks loaded much longer ("Break limits")
+                                // Normal: renderDist + 4. Freelook: 50 (Huge cache).
+                                const unloadDist = isAltPressed ? 50 : (Math.ceil(config.renderDistance / camera.zoom) + 4);
+
                                 for (const [key, containers] of chunkContainers.entries()) {
-                                    if (!chunksToRender.has(key)) {
+                                    const [kcx, kcy] = key.split(',').map(Number);
+
+                                    // Distance check from camera center
+                                    if (Math.abs(kcx - camChunkX) > unloadDist ||
+                                        Math.abs(kcy - camChunkY) > unloadDist) {
+
                                         if (containers.dirt) {
                                             dirtLayer.removeChild(containers.dirt);
                                             containers.dirt.destroy({ children: true });
                                         }
                                         if (containers.grass) {
                                             grassLayer.removeChild(containers.grass);
-                                            containers.grass.destroy({ children: true });
+                                            containers.grass.destroy({ children: true }); // Ensure children destroyed
                                         }
                                         chunkContainers.delete(key);
                                     }
                                 }
 
                                 // Render new chunks (only if not already rendered)
-                                // Time Slicing Scale: More chunks if zoomed out
-                                const MAX_CHUNKS_PER_FRAME = config.maxChunksPerFrame || 10;
+                                // Turbo Mode in Freelook: "Break its maximum"
+                                let limit = config.maxChunksPerFrame || 10;
+                                if (isAltPressed) limit = 200; // Allow massive chunk loading in freelook
+
                                 let chunksCreated = 0;
 
                                 // Loop through chunks (standard scanline order: top-to-bottom)
                                 for (const key of chunksToRender) {
                                     if (!chunkContainers.has(key)) {
-                                        if (chunksCreated < MAX_CHUNKS_PER_FRAME) {
+                                        if (chunksCreated < limit) {
                                             const [cx, cy] = key.split(',').map(Number);
                                             rchunks(cx, cy);
                                             chunksCreated++;
@@ -1388,7 +1473,7 @@
 
                     function renderOverlays() {
                         // Skip overlay rendering entirely if grid is disabled (massive performance boost)
-                        if (!showGrid) {
+                        if (!window.showGrid) {
                             if (overlayGraphics) {
                                 world.removeChild(overlayGraphics);
                                 overlayGraphics.destroy();
@@ -1409,16 +1494,42 @@
                         // Calculate visible area
                         const playerChunkX = Math.round(player.x / TILE_SIZE / CHUNK_SIZE);
                         const playerChunkY = Math.round(player.y / TILE_SIZE / CHUNK_SIZE);
-                        const renderDistance = Math.min(5, Math.ceil(5 / Math.max(camera.zoom, 1.0)));
+
+                        // Scale render distance inversely with zoom to cover screen
+                        // Base distance 6 chunks (covers 1080p width at 1.0x with margin)
+                        // Allow distance to grow when zooming out (min zoom 0.1)
+                        // Max distance clamped to 20 to prevent performance issues
+                        const viewRadius = Math.ceil(8 / Math.max(camera.zoom, 0.1));
+                        const renderDistance = Math.min(20, Math.max(6, viewRadius)); // Min 6, Max 20
+
                         const startX = (playerChunkX - renderDistance) * CHUNK_SIZE;
                         const endX = (playerChunkX + renderDistance + 1) * CHUNK_SIZE;
                         const startY = (playerChunkY - renderDistance) * CHUNK_SIZE;
                         const endY = (playerChunkY + renderDistance + 1) * CHUNK_SIZE;
 
 
-                        /* BLOCK GRID REMOVED (User Request) */
-                        if (window.gridRed) window.gridRed.visible = false;
-                        if (window.gridWhite) window.gridWhite.visible = false;
+                        /* BLOCK GRID RESTORED (User Request) */
+                        if (window.showGrid) {
+                            // Hairline Grid: Width scales inversely with zoom to stay 1px on screen
+                            // Increased alpha because thin lines are harder to see
+                            overlayGraphics.lineStyle(1 / Math.max(camera.zoom, 0.1), 0xFF0000, 0.8); // Red Grid
+
+                            // Vertical Lines (x)
+                            // startX/endX are in Tile Units. Iterate through each tile column.
+                            for (let x = startX; x <= endX; x++) {
+                                const px = x * TILE_SIZE;
+                                overlayGraphics.moveTo(px, startY * TILE_SIZE);
+                                overlayGraphics.lineTo(px, endY * TILE_SIZE);
+                            }
+
+                            // Horizontal Lines (y) 
+                            // Iterate through each tile row.
+                            for (let y = startY; y <= endY; y++) {
+                                const py = y * TILE_SIZE;
+                                overlayGraphics.moveTo(startX * TILE_SIZE, py);
+                                overlayGraphics.lineTo(endX * TILE_SIZE, py);
+                            }
+                        }
 
 
                         /* GREEN HIGHLIGHT LOOP REMOVED (Performance Optimization) */

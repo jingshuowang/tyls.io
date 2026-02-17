@@ -1,26 +1,38 @@
 # tyls.io Development TODO
-the whole game is a pixel game with some lighting effects. would be between a 3d game and a 2d game.
+The game is a pixel-art style multiplayer sandbox with a Java backend and JS/HTML5 frontend.
 
-## 🚀 Immediate Plans (Upon Return)
+## 🚀 Recently Completed
+### 1. Java WebSocket Server (Replaced WASM) ✅
+**Goal:** Centralized server for multiplayer synchronization.
+- [x] **WebSocket Server**: Running on port 25567 (Java-WebSocket).
+- [x] **Chunk Sync**: Server generates/loads chunks and sends to client as JSON.
+- [x] **Block Updates**: `setBlock` broadcasts changes to all players and saves to SQLite.
+- [x] **Player Sync**: Real-time X/Y movement interpolation.
+- [x] **World Generation**: Perlin noise (Height/Density) with biome support.
 
-### 1. WebAssembly Integration (sql.js) ✅
-**Goal:** Run the game database LOCALLY in the browser. Zero loading times on movement.
-- [x] **Download sql.js**: Added via CDN in `index.html`.
-- [x] **Load `world.db` Locally**: Fetch logic implemented in `window.load` + IndexedDB persistence.
-- [x] **Remove Network Chunking**: `getChunk` now queries WASM DB synchronously.
-- [x] **Direct Queries**: frontend queries SQLite directly using WASM.
-- [x] **Persistence**: `saveWorld` updates in-memory DB and syncs to IndexedDB `tyls_db`.
+### 2. Client Optimization ✅
+- [x] **Asset Loading**: Fixed missing textures (Grass, Water, Sand).
+- [x] **Performance**: Capped FPS to 60, added TPS display.
+- [x] **Input**: Fixed Alt-mode cursor toggling.
 
-### 2. WebSocket Multiplayer (Phase 2) ⏳
-**Goal:** Real-time player interaction.
-- [ ] **Setup Socket Server**: Initialize Socket.IO or WS on the Java server (or separate Node process).
-- [ ] **Player Sync**: Broadcast X/Y coordinates to all connected clients.
-- [ ] **World Sync**: When a block changes, broadcast the update to everyone immediately.
+## ⏳ Active Tasks (User Requests)
+### 1. Fix Broken Features ("Stuff is gone")
+- [ ] **Mining/Placing**: Fix inability to mine or place blocks (Critical).
+- [ ] **Red Grid**: Recover the red visual grid.
+- [ ] **Image Selector**: Fix it using the entire image instead of the tile.
+- [ ] **Alt Mode**: 
+    - [x] Cursor toggle (Fixed).
+    - [ ] Camera Zoom (Needs verification).
 
-## 🐛 Known Issues
-- [x] **Visual Glitches**: Fix tile transitions at chunk boundaries (Fixed 1.0 - Improved Neighbor Updates & Layering).
-- [x] **Auto Save**: Replaced manual button with background auto-save (Fixed 1.0).
-- [x] **Diagonal Black Pattern**: Fixed by synchronous `getChunk` calls in `getTileSafe` (WASM).
+### 2. Dual Grid (Auto-Tiling)
+- [ ] **Expand Logic**: "if the block isn't itself then act as it is air and if it is then its 1".
+- [ ] **New Blocks**: Apply dual-grid format to **Sand** and **Water** (from `TempImage`).
+- [ ] **Standard**: "All blocks except for dirt should have the dual grid format".
+
+## 🚨 CRITICAL BUGS (Current Session End)
+- [ ] **Visual Corruption**: Render glitches and tearing on mouse movement.
+- [ ] **Dual Grid**: Logic implemented for Water/Grass/Sand, but rendering may be incorrect/overlapping.
+- [ ] **Dirt Layering**: Implemented TilingSprite background, but needs verification if it solved the black voids without causing new issues.
 
 ## 🔮 Future Features
 - [ ] **UI System**: Hotbar, Settings, Inventory. Special 9-slice frame with blurred background.
