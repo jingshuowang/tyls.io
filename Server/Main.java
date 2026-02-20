@@ -19,17 +19,29 @@ public class Main {
     private static final int WS_PORT = 8002;
 
     // Async Progress Tracking
-    private static volatile boolean isWorldReady = false;
+    private static volatile boolean worldReady = false; // Renamed from isWorldReady as requested
+
+    // STatic reference for broadcasting
+    private static GameWebSocketServer serverInstance;
 
     // WebSocket Server Inner Class
     public static class GameWebSocketServer extends WebSocketServer {
         public GameWebSocketServer(int port) {
             super(new InetSocketAddress(port));
+            serverInstance = this;
         }
 
         @Override
         public void onOpen(WebSocket conn, ClientHandshake handshake) {
+            if (!worldReady) {
+                conn.close(1013, "Server is generating world... please wait.");
+                return;
+            }
             System.out.println("New connection: " + conn.getRemoteSocketAddress());
+
+            // Send initial world dimension/metadata if needed
+            // conn.send("{\"type\":\"config\",\"worldSize\":" + (WORLD_RADIUS_CHUNKS * 2) +
+            // "}");
         }
 
         @Override
@@ -91,50 +103,9 @@ public class Main {
                             broadcast(message);
 
                             // Persist to DB (ASync or blocking? Blocking for safety now)
-                            int cx = Math.floorDiv(gx, CHUNK_SIZE);
-                            int cy = Math.floorDiv(gy, CHUNK_SIZE);
+                            // Refactored to a helper method
+                            setBlock(gx, gy, val);
 
-                            // Modulo logic for negative numbers using floorMod if needed, but Java % is
-                            // undefined for negs usually
-                            // We need local 0-15
-                            int lx = (gx % CHUNK_SIZE + CHUNK_SIZE) % CHUNK_SIZE;
-                            int ly = (gy % CHUNK_SIZE + CHUNK_SIZE) % CHUNK_SIZE;
-                            int idx = ly * CHUNK_SIZE + lx;
-
-                            String chunkData = getOrGenerateChunk(cx, cy);
-
-                            // Update comma-separated list [1,0,2...]
-                            // We need to parse the existing data string
-                            String currentData = chunkData;
-                            // Remove brackets if present (backward compatibility check)
-                            if (currentData.startsWith("[")) {
-                                currentData = currentData.substring(1, currentData.length() - 1);
-                            }
-
-                            String[] parts = currentData.split(",");
-                            if (idx >= 0 && idx < parts.length) {
-                                parts[idx] = String.valueOf(val);
-
-                                // Reconstruct
-                                StringBuilder sb = new StringBuilder();
-                                sb.append("[");
-                                for (int i = 0; i < parts.length; i++) {
-                                    sb.append(parts[i]);
-                                    if (i < parts.length - 1)
-                                        sb.append(",");
-                                }
-                                sb.append("]");
-                                String newData = sb.toString();
-
-                                // Save back
-                                try (Connection dbConn = DriverManager.getConnection(DB_URL);
-                                        PreparedStatement pstmt = dbConn
-                                                .prepareStatement("UPDATE chunks SET data = ? WHERE id = ?")) {
-                                    pstmt.setString(1, newData);
-                                    pstmt.setString(2, cx + "," + cy);
-                                    pstmt.executeUpdate();
-                                }
-                            }
                         } catch (Exception e) {
                             e.printStackTrace();
                         }
@@ -202,8 +173,7 @@ public class Main {
                 preGenerateWorld(DB_URL);
             } else {
                 System.out.println("World loaded from database: " + count + " chunks");
-                isWorldReady = true;
-
+                worldReady = true;
             }
 
             System.out.println("Database: Ready");
@@ -231,10 +201,43 @@ public class Main {
             System.out.println("========================================");
             System.out.println("  Press Ctrl+C to stop.");
 
+            System.out.println("  Press Ctrl+C to stop.");
+
+            // SERVER TICK LOOP (20 TPS)
+            long lastTime = System.nanoTime();
+            final double ns = 1000000000.0 / 20.0;
+            double delta = 0;
+            long timer = System.currentTimeMillis();
+            int updates = 0;
+            // int frames = 0; // Removed unused variable
+
             while (true) {
-                Thread.sleep(10000);
+                long now = System.nanoTime();
+                delta += (now - lastTime) / ns;
+                lastTime = now;
+
+                while (delta >= 1) {
+                    // Update Game Logic Here (if any)
+                    // world.tick();
+                    updates++;
+                    delta--;
+                }
+
+                // Sleep to prevent CPU hogging
+                try {
+                    Thread.sleep(2);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+
+                if (System.currentTimeMillis() - timer > 1000) {
+                    timer += 1000;
+                    System.out.println("TPS: " + updates);
+                    updates = 0;
+                }
             }
-        } catch (InterruptedException e) {
+
+        } catch (Exception e) { // General Exception
             e.printStackTrace();
         }
     }
@@ -407,8 +410,7 @@ public class Main {
                     pstmt.executeBatch();
                     conn.commit();
                     System.out.println("\rProgress: 100% - Done!");
-                    isWorldReady = true;
-
+                    worldReady = true;
                 } catch (SQLException e) {
                     conn.rollback();
                     throw e;
@@ -581,19 +583,90 @@ public class Main {
         return dataStr;
     }
 
+    // Helper to update a block in the database
+    private static void setBlock(int gx, int gy, int val) {
+        // Calculate Chunk ID
+        int cx = Math.floorDiv(gx, CHUNK_SIZE);
+        int cy = Math.floorDiv(gy, CHUNK_SIZE);
+        String key = cx + "," + cy;
+
+        // Calculate Local Coordinates (0-15)
+        int lx = (gx % CHUNK_SIZE + CHUNK_SIZE) % CHUNK_SIZE;
+        int ly = (gy % CHUNK_SIZE + CHUNK_SIZE) % CHUNK_SIZE;
+        int idx = ly * CHUNK_SIZE + lx;
+
+        try (Connection conn = DriverManager.getConnection(DB_URL)) {
+            String sqlSelect = "SELECT data FROM chunks WHERE id = ?";
+            String currentData = null;
+
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlSelect)) {
+                pstmt.setString(1, key);
+                ResultSet rs = pstmt.executeQuery();
+                if (rs.next()) {
+                    currentData = rs.getString("data");
+                }
+            }
+
+            if (currentData != null) {
+                // Remove brackets if present (backward compatibility check)
+                if (currentData.startsWith("[")) {
+                    currentData = currentData.substring(1, currentData.length() - 1);
+                }
+
+                String[] parts = currentData.split(",");
+                if (idx >= 0 && idx < parts.length) {
+                    parts[idx] = String.valueOf(val);
+
+                    // Reconstruct
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("[");
+                    for (int i = 0; i < parts.length; i++) {
+                        sb.append(parts[i]);
+                        if (i < parts.length - 1)
+                            sb.append(",");
+                    }
+                    sb.append("]");
+                    String newData = sb.toString();
+
+                    // Save back
+                    String sqlUpdate = "UPDATE chunks SET data = ? WHERE id = ?";
+                    try (PreparedStatement pstmtUpd = conn.prepareStatement(sqlUpdate)) {
+                        pstmtUpd.setString(1, newData);
+                        pstmtUpd.setString(2, key); // Fixed typo from pstmtUp
+                        pstmtUpd.executeUpdate();
+                    }
+
+                    // Broadcast Update to all clients
+                    // {"type":"block", "x":1, "y":2, "val":3}
+                    String updateMsg = String.format("{\"type\":\"block\",\"x\":%d,\"y\":%d,\"val\":%d}", gx, gy, val);
+                    broadcast(updateMsg); // Helper method needed or access inner class
+                }
+            }
+
+        } catch (SQLException e) {
+            System.err.println("SetBlock DB Error: " + e.getMessage());
+        }
+    }
+
+    // Static helper to broadcast
+    public static void broadcast(String msg) {
+        // This is a bit hacky because GameWebSocketServer is an inner class instance.
+        // But we need to access the helper.
+        // Ideally, we should have a static reference to the server instance.
+        if (serverInstance != null) {
+            serverInstance.broadcast(msg);
+        }
+    }
+
     private static int[][] generateChunkPerlin(int cx, int cy) {
         int[][] chunk = new int[CHUNK_SIZE][CHUNK_SIZE];
 
         // Safe spawn zone in center
         double distFromCenter = Math.sqrt(cx * cx + cy * cy);
         if (distFromCenter < 2) {
-            return chunk; // All 0 (Deep Water/Spawn safe zone? Maybe set to Grass for spawn?)
-            // Let's make spawn always Grass (4) to avoid spawning in water
-        }
-        if (distFromCenter < 2) {
             for (int y = 0; y < CHUNK_SIZE; y++) {
                 for (int x = 0; x < CHUNK_SIZE; x++) {
-                    chunk[y][x] = 2; // Grass (Safe Spawn)
+                    chunk[y][x] = 1; // Dirt (Safe Spawn - User Request: ID 1 is Dirt)
                 }
             }
             return chunk;
@@ -601,41 +674,22 @@ public class Main {
 
         for (int y = 0; y < CHUNK_SIZE; y++) {
             for (int x = 0; x < CHUNK_SIZE; x++) {
-                double worldX = cx * CHUNK_SIZE + x;
-                double worldY = cy * CHUNK_SIZE + y;
+                // User Request: Density based on Perlin Noise (Low = Dense)
+                // 0=Water, 1=Dirt, 2=Grass, 3=Sand
 
-                // 1. Height Noise (Elevation) - Determines Water vs Land
-                double hLarge = getNoise(worldX * 0.01, worldY * 0.01) * 1.0;
-                double hSmall = getNoise(worldX * 0.05, worldY * 0.05) * 0.5;
-                double height = hLarge + hSmall; // Approx range -1.5 to 1.5
+                // Generate a single noise value for "density"
+                // Using previously tuned frequency (0.04) for visible variation in LOD
+                double val = getNoise((cx * CHUNK_SIZE + x) * 0.04, (cy * CHUNK_SIZE + y) * 0.04);
 
-                // 2. Density Noise (Moisture/Vegetation) - Determines Biome Type
-                // Offset coordinates to make it distinct from height
-                double dLarge = getNoise((worldX + 5000) * 0.01, (worldY + 5000) * 0.01) * 1.0;
-                double dSmall = getNoise((worldX + 5000) * 0.05, (worldY + 5000) * 0.05) * 0.5;
-                double density = dLarge + dSmall;
-
-                // Biome Logic
                 int blockID;
-
-                if (height < -0.2) {
-                    blockID = 1; // Deep Ocean -> Ocean
-                } else if (height < 0.0) {
-                    blockID = 1; // Ocean / Shallow Water
+                if (val < -0.3) {
+                    blockID = 0; // Low Perlin = Water (Densest)
+                } else if (val < 0.1) {
+                    blockID = 1; // Dirt
+                } else if (val < 0.4) {
+                    blockID = 2; // Grass
                 } else {
-                    // Land (Height >= 0)
-                    if (height < 0.1) {
-                        blockID = 3; // Sand (Beach)
-                    } else {
-                        // Inland
-                        if (density < -0.1) {
-                            blockID = 3; // Sand (Desert)
-                        } else if (density < 0.2) {
-                            blockID = 0; // Dirt
-                        } else {
-                            blockID = 2; // Grass
-                        }
-                    }
+                    blockID = 3; // High Perlin = Sand (Least Dense)
                 }
                 chunk[y][x] = blockID;
             }

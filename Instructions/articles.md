@@ -98,19 +98,19 @@ For our game this is the code. For image selector it starts from top left and go
 dual grid key:
 image 0 (TL:0, TR:0, BL:1, BR:0)
 image 1 (TL:0, TR:1, BL:0, BR:1)
-image 2 (TL:1, TR:0, BL:1, BR:1) same as 8 it is renbdering as 10 which is blank 
-image 3 (TL:0, TR:0, BL:1, BR:1) rendering as blan k
+image 2 (TL:1, TR:0, BL:1, BR:1) 
+image 3 (TL:0, TR:0, BL:1, BR:1) 
 image 4 (TL:1, TR:0, BL:0, BR:1)
 image 5 (TL:0, TR:1, BL:1, BR:1)
 image 6 (TL:1, TR:1, BL:1, BR:1)
 image 7 (TL:1, TR:1, BL:1, BR:0)
-image 8 (TL:0, TR:1, BL:0, BR:0) fix this one its shwoing as image 12 (blank) could be layered by dirt could be problem
+image 8 (TL:0, TR:1, BL:0, BR:0) layered by dirt could be problem
 image 9 (TL:1, TR:1, BL:0, BR:0)
 image 10 (TL:1, TR:1, BL:0, BR:1)
 image 11 (TL:1, TR:0, BL:1, BR:0)
 image 12 (TL:0, TR:0, BL:0, BR:0)
-image 13 (TL:0, TR:0, BL:0, BR:1) rendering as blank too
+image 13 (TL:0, TR:0, BL:0, BR:1) 
 image 14 (TL:0, TR:1, BL:1, BR:0)
 image 15 (TL:1, TR:0, BL:0, BR:0)
 this plaies for eveyrthing except for dirt which u in dirt select randomly for now just dont load it since dirt isnt done yet
-the denser the materail the more first it renders 
+the 0 means non self tiles neighbors and 1 means self tile neibors. 

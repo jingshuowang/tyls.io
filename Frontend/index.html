@@ -22,7 +22,10 @@
             display: block;
             image-rendering: pixelated;
             image-rendering: crisp-edges;
-            cursor: none;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            /* Use hardware accelerated CSS cursor */
+            cursor: url('../Assets/Image/cursor.png') 16 16, auto;
         }
 
         #info {
@@ -57,6 +60,8 @@
 
         /* Custom HTML Cursor */
         /* Custom HTML Cursor */
+        /* Custom HTML Cursor REMOVED for Performance */
+        /*
         #follower-element {
             width: 32px;
             height: 32px;
@@ -65,16 +70,17 @@
             background-repeat: no-repeat;
             position: fixed;
             transform: translate(-50%, -50%);
-            /* Center? Usually cursors are top-left... let's keep top-left */
-            /* transform: translate(0, 0); */
             pointer-events: none;
             z-index: 10000;
             image-rendering: pixelated;
         }
+        */
 
         /* Force Hide System Cursor Globally */
         * {
-            cursor: none !important;
+            /* Let elements inherit the custom cursor defined on canvas/body */
+            /* cursor: none !important; */
+            cursor: inherit;
         }
     </style>
 </head>
@@ -82,13 +88,404 @@
 <body>
     <div id="info"></div>
     <div id="activity"></div>
-    <div id="follower-element"></div>
+    <div id="activity"></div>
+    <!-- <div id="follower-element"></div> -->
 
     <!-- Loading Overlay -->
     <div id="loading-overlay"
         style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 99999; display: flex; align-items: center; justify-content: center; color: white; font-family: 'Minecraft', monospace; font-size: 24px; transition: opacity 1s;">
         Loading World...
     </div>
+
+    <!-- ===== INVENTORY SYSTEM (Inline, No External UI) ===== -->
+    <style>
+        #inv-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 9000;
+            pointer-events: auto;
+        }
+
+        #inv-panel {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #2a2a2a;
+            border: 4px solid #555;
+            padding: 12px;
+            image-rendering: pixelated;
+            font-family: monospace;
+            color: #ccc;
+        }
+
+        #inv-panel h3 {
+            margin: 0 0 6px 0;
+            font-size: 14px;
+            color: #aaa;
+            text-align: center;
+        }
+
+        .inv-grid {
+            display: grid;
+            gap: 2px;
+        }
+
+        .inv-backpack {
+            grid-template-columns: repeat(10, 40px);
+        }
+
+        .inv-hotbar-grid {
+            grid-template-columns: repeat(4, 40px);
+            justify-content: center;
+        }
+
+        .inv-slot {
+            width: 40px;
+            height: 40px;
+            background: #1a1a1a;
+            border: 2px solid #444;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            cursor: none;
+            user-select: none;
+        }
+
+        .inv-slot:hover {
+            border-color: #888;
+        }
+
+        .inv-slot.active {
+            border-color: #ffd700;
+            box-shadow: 0 0 6px #ffd700;
+        }
+
+        .inv-slot .block-icon {
+            width: 28px;
+            height: 28px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .inv-slot .count {
+            position: absolute;
+            bottom: 1px;
+            right: 3px;
+            font-size: 10px;
+            color: #fff;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        .inv-separator {
+            height: 2px;
+            background: #555;
+            margin: 8px 0;
+        }
+
+        /* Floating held item */
+        #inv-held {
+            position: fixed;
+            width: 28px;
+            height: 28px;
+            pointer-events: none;
+            z-index: 9999;
+            display: none;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+        }
+
+        /* Bottom hotbar (always visible) */
+        #hotbar-bar {
+            position: fixed;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 2px;
+            z-index: 8000;
+            pointer-events: none;
+        }
+
+        #hotbar-bar .hb-slot {
+            width: 44px;
+            height: 44px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 2px solid #555;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        #hotbar-bar .hb-slot.active {
+            border-color: #ffd700;
+        }
+
+        #hotbar-bar .hb-slot .block-icon {
+            width: 32px;
+            height: 32px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        #hotbar-bar .hb-slot .count {
+            position: absolute;
+            bottom: 1px;
+            right: 3px;
+            font-size: 10px;
+            color: #fff;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        #hotbar-bar .hb-slot .slot-num {
+            position: absolute;
+            top: 1px;
+            left: 3px;
+            font-size: 9px;
+            color: #888;
+            font-family: monospace;
+        }
+    </style>
+
+    <!-- Inventory Overlay (hidden, toggle with E) -->
+    <div id="inv-overlay">
+        <div id="inv-panel">
+            <h3>Backpack</h3>
+            <div class="inv-grid inv-backpack" id="inv-backpack"></div>
+            <div class="inv-separator"></div>
+            <h3>Hotbar</h3>
+            <div class="inv-grid inv-hotbar-grid" id="inv-hotbar"></div>
+        </div>
+    </div>
+    <!-- Floating held item -->
+    <div id="inv-held"></div>
+    <!-- Always-visible hotbar at bottom -->
+    <div id="hotbar-bar" id="hotbar-display"></div>
+
+    <script>
+        // ===== INVENTORY LOGIC =====
+        (function () {
+            const BLOCK_COLORS = {
+                0: '#1E90FF', // Water
+                1: '#8B4513', // Dirt
+                2: '#228B22', // Grass
+                3: '#F4A460', // Sand
+            };
+            const BLOCK_NAMES = { 0: 'Water', 1: 'Dirt', 2: 'Grass', 3: 'Sand' };
+
+            // Inventory data
+            const hotbar = [
+                { id: 0, count: 99 }, // Water
+                { id: 1, count: 99 }, // Dirt
+                { id: 2, count: 99 }, // Grass
+                { id: 3, count: 99 }, // Sand
+            ];
+            const backpack = new Array(30).fill(null);
+
+            let activeSlot = 1; // Which hotbar slot is selected (0-3), default Dirt
+            let heldItem = null; // Item being moved with cursor
+            let invOpen = false;
+
+            // Expose globally
+            window.INV = {
+                hotbar, backpack,
+                getActiveSlot: () => activeSlot,
+                getActiveBlock: () => hotbar[activeSlot] ? hotbar[activeSlot].id : 1,
+                isOpen: () => invOpen,
+            };
+
+            // --- Rendering ---
+            function makeBlockDiv(item) {
+                if (!item) return '';
+                const color = BLOCK_COLORS[item.id] || '#666';
+                let html = `<div class="block-icon" style="background:${color};" title="${BLOCK_NAMES[item.id] || '?'}"></div>`;
+                if (item.count > 1) html += `<span class="count">${item.count}</span>`;
+                return html;
+            }
+
+            function renderInvPanel() {
+                // Backpack
+                const bp = document.getElementById('inv-backpack');
+                if (!bp) return;
+                bp.innerHTML = '';
+                for (let i = 0; i < 30; i++) {
+                    const slot = document.createElement('div');
+                    slot.className = 'inv-slot';
+                    slot.dataset.container = 'backpack';
+                    slot.dataset.index = i;
+                    slot.innerHTML = makeBlockDiv(backpack[i]);
+                    bp.appendChild(slot);
+                }
+                // Hotbar (in panel)
+                const hb = document.getElementById('inv-hotbar');
+                if (!hb) return;
+                hb.innerHTML = '';
+                for (let i = 0; i < 4; i++) {
+                    const slot = document.createElement('div');
+                    slot.className = 'inv-slot' + (i === activeSlot ? ' active' : '');
+                    slot.dataset.container = 'hotbar';
+                    slot.dataset.index = i;
+                    slot.innerHTML = makeBlockDiv(hotbar[i]);
+                    hb.appendChild(slot);
+                }
+            }
+
+            function renderHotbarBar() {
+                const bar = document.getElementById('hotbar-bar');
+                if (!bar) return;
+                bar.innerHTML = '';
+                for (let i = 0; i < 4; i++) {
+                    const slot = document.createElement('div');
+                    slot.className = 'hb-slot' + (i === activeSlot ? ' active' : '');
+                    slot.innerHTML = `<span class="slot-num">${i + 1}</span>` + makeBlockDiv(hotbar[i]);
+                    bar.appendChild(slot);
+                }
+            }
+
+            function renderHeld() {
+                const el = document.getElementById('inv-held');
+                if (!el) return;
+                if (heldItem) {
+                    el.style.display = 'block';
+                    el.style.background = BLOCK_COLORS[heldItem.id] || '#666';
+                } else {
+                    el.style.display = 'none';
+                }
+            }
+
+            function renderAll() {
+                renderInvPanel();
+                renderHotbarBar();
+                renderHeld();
+                // Sync active block for placement
+                window.selectedBlock = window.INV.getActiveBlock();
+            }
+
+            // --- Interaction ---
+            function getSlotAt(e) {
+                const el = e.target.closest('.inv-slot');
+                if (!el) return null;
+                return { container: el.dataset.container, index: parseInt(el.dataset.index) };
+            }
+
+            function getArr(container) {
+                return container === 'hotbar' ? hotbar : backpack;
+            }
+
+            function otherContainer(container) {
+                return container === 'hotbar' ? 'backpack' : 'hotbar';
+            }
+
+            function firstEmptyIdx(arr) {
+                for (let i = 0; i < arr.length; i++) {
+                    if (!arr[i]) return i;
+                }
+                return -1;
+            }
+
+            // Left click: pick up / put down
+            document.addEventListener('mousedown', (e) => {
+                if (!invOpen) return;
+                const overlay = document.getElementById('inv-overlay');
+                if (!overlay || !overlay.contains(e.target)) return;
+
+                const slotInfo = getSlotAt(e);
+                if (!slotInfo) return;
+
+                e.preventDefault();
+                e.stopPropagation();
+
+                const arr = getArr(slotInfo.container);
+                const idx = slotInfo.index;
+
+                if (e.button === 0) {
+                    // Left click
+                    if (heldItem) {
+                        // Place held item
+                        if (arr[idx]) {
+                            // Swap
+                            const tmp = arr[idx];
+                            arr[idx] = { ...heldItem };
+                            heldItem = tmp;
+                        } else {
+                            arr[idx] = { ...heldItem };
+                            heldItem = null;
+                        }
+                    } else {
+                        // Pick up
+                        if (arr[idx]) {
+                            heldItem = { ...arr[idx] };
+                            arr[idx] = null;
+                        }
+                    }
+                    renderAll();
+                } else if (e.button === 2) {
+                    // Right click: quick transfer to opposite container
+                    if (arr[idx]) {
+                        const otherArr = getArr(otherContainer(slotInfo.container));
+                        const emptyIdx = firstEmptyIdx(otherArr);
+                        if (emptyIdx !== -1) {
+                            otherArr[emptyIdx] = { ...arr[idx] };
+                            arr[idx] = null;
+                            renderAll();
+                        }
+                    }
+                }
+            }, true);
+
+            // Track held item with cursor
+            document.addEventListener('mousemove', (e) => {
+                if (!heldItem) return;
+                const el = document.getElementById('inv-held');
+                if (el) {
+                    el.style.left = e.clientX + 'px';
+                    el.style.top = e.clientY + 'px';
+                }
+            });
+
+            // Prevent context menu on inventory
+            document.addEventListener('contextmenu', (e) => {
+                if (invOpen) {
+                    const overlay = document.getElementById('inv-overlay');
+                    if (overlay && overlay.contains(e.target)) {
+                        e.preventDefault();
+                    }
+                }
+            });
+
+            // Toggle inventory with E
+            window.addEventListener('keydown', (e) => {
+                if (e.key.toLowerCase() === 'e') {
+                    invOpen = !invOpen;
+                    const overlay = document.getElementById('inv-overlay');
+                    if (overlay) overlay.style.display = invOpen ? 'block' : 'none';
+                    // Drop held item back if closing
+                    if (!invOpen && heldItem) {
+                        // Try to put back in backpack
+                        const idx = firstEmptyIdx(backpack);
+                        if (idx !== -1) backpack[idx] = heldItem;
+                        heldItem = null;
+                    }
+                    renderAll();
+                }
+
+                // Hotbar selection: 1-4
+                if (e.key >= '1' && e.key <= '4') {
+                    activeSlot = parseInt(e.key) - 1;
+                    window.selectedBlock = window.INV.getActiveBlock();
+                    // renderAll(); // Removed as render is continuous
+                }
+            });
+
+            // Initial render
+            renderAll();
+        })();
+    </script>
 
     <!-- Save Button -->
 
@@ -161,10 +558,11 @@
 
         // Interaction
         let isAltPressed = false;
-        let showGrid = false;
+        let showGrid = true;
         let hoveredTileX = null;
         let hoveredTileY = null;
         let selectSprite = null;
+        window.selectedBlock = 1; // Default: Dirt (1=Water, 2=Dirt, 3=Grass, 4=Sand mapped to IDs 0-3)
 
         // Input
         const keys = {};
@@ -237,6 +635,8 @@
                 window.showGrid = !window.showGrid;
             }
 
+            // Block Selection: 1-4 handled by inventory system (see INV script above)
+
             if (keys[e.key]) return; // distinct press check
             keys[e.key] = true;
 
@@ -284,19 +684,56 @@
 
             // PixiJS App (v8 requires await)
             // PixiJS App (using global 'app' from variables.js)
+            // Dual Grid Mapping from articles.md
+            // Key: 4-bit integer (TL, TR, BL, BR)
+            // Value: Image Index (0-15)
+            const DG_MAP = [
+                12, // 0000 -> Image 12
+                13, // 0001 -> Image 13
+                0,  // 0010 -> Image 0
+                3,  // 0011 -> Image 3
+                8,  // 0100 -> Image 8
+                1,  // 0101 -> Image 1
+                14, // 0110 -> Image 14
+                5,  // 0111 -> Image 5
+                15, // 1000 -> Image 15
+                4,  // 1001 -> Image 4
+                11, // 1010 -> Image 11
+                2,  // 1011 -> Image 2
+                9,  // 1100 -> Image 9
+                10, // 1101 -> Image 10
+                7,  // 1110 -> Image 7
+                6   // 1111 -> Image 11
+            ];
+
+            function getDgIdx(wx, wy, typeId) {
+                // Check 4 corners: TL, TR, BL, BR
+                // wx, wy is the top-left coordinate of the dual grid tile
+                // which corresponds to the generic world grid coordinates.
+
+                const tl = getTileSafe(wx, wy) === typeId ? 1 : 0;
+                const tr = getTileSafe(wx + 1, wy) === typeId ? 1 : 0;
+                const bl = getTileSafe(wx, wy + 1) === typeId ? 1 : 0;
+                const br = getTileSafe(wx + 1, wy + 1) === typeId ? 1 : 0;
+
+                const key = (tl << 3) | (tr << 2) | (bl << 1) | br;
+                return DG_MAP[key];
+            }
+
             app = new PIXI.Application();
             await app.init({
                 width: window.innerWidth,
                 height: window.innerHeight,
-                backgroundColor: 0x000000,
-                backgroundAlpha: 0, // Transparent background
+                backgroundColor: 0xFFFFFF, // User Request: White Background
+                backgroundAlpha: 1, // Opaque
                 antialias: false,
                 roundPixels: true,  // Pixel-perfect rendering
                 preference: 'maximum-performance', // Hint to browser
                 powerPreference: 'high-performance'
             });
             // Cap FPS to 60 to prevent coil whine and "infinite" FPS lag
-            app.ticker.maxFPS = 60;
+            // User request: "fps is getting limited its capping at like 50" -> Uncap it
+            app.ticker.maxFPS = 0;
             document.body.appendChild(app.canvas);
 
             // Resize canvas to fill screen (fixes black bar at top)
@@ -315,19 +752,28 @@
             // World container (global 'world')
             world = new PIXI.Container();
             world.sortableChildren = true; // Enable z-index sorting for world (tiles/players)
-            app.stage.sortableChildren = true; // Enable z-index sorting for stage (UI/Crosshair)
             app.stage.addChild(world);
 
-            // Layers for Z-sorting (Fixes "cutoff" grass/half tiles)
+            // UI Container (for crosshair, etc.)
+            const uiContainer = new PIXI.Container();
+            uiContainer.zIndex = 1000;
+            app.stage.addChild(uiContainer);
+
+            app.stage.sortableChildren = true; // Enable z-index sorting for stage
+
             // Layers for Z-sorting (global 'dirtLayer', 'grassLayer')
             dirtLayer = new PIXI.Container();
             grassLayer = new PIXI.Container();
+            window.playerGraphics = new PIXI.Graphics(); // Player character
 
             // Explicit Rendering Order (Z-Index)
             dirtLayer.zIndex = 0;   // Bottom
-            grassLayer.zIndex = 10; // Top
+            grassLayer.zIndex = 1;  // Mid
+            window.playerGraphics.zIndex = 10; // Top
 
             world.addChild(dirtLayer);
+            world.addChild(grassLayer);
+            world.addChild(window.playerGraphics);
             world.addChild(grassLayer);
 
 
@@ -451,60 +897,9 @@
                 if (ty === CHUNK_SIZE - 1) dirtyChunks.add(`${cx},${cy + 1}`);
             }
 
-            // Get dirt variant (4x4 grid = 16 variations)
-            function getDirtIdx(x, y) {
-                // Use position-based pseudo-random for consistent dirt pattern
-                const hash = (x * 374761393 + y * 668265263) & 0xffffffff;
-                return Math.abs(hash) % 16; // Random dirt tile 0-15
-            }
-
             // Global Texture Cache (from variables.js)
+            // Functions moved to initGame scope or replaced by Dual Grid logic
 
-            function getTileTexture(sourceTexture, idx) {
-                if (!globalTextureCache.has(sourceTexture)) {
-                    globalTextureCache.set(sourceTexture, {});
-                }
-                const cache = globalTextureCache.get(sourceTexture);
-
-                if (cache[idx]) {
-                    return cache[idx];
-                }
-
-                const w = sourceTexture.width || 64;
-                const h = sourceTexture.height || 64;
-
-                let tileW, tileH, col, row;
-
-                // Smart Layout Detection based on Aspect Ratio
-                if (Math.abs(w - h) < 4) { // Tolerance for square
-                    // 4x4 Grid (Standard)
-                    tileW = w / 4;
-                    tileH = h / 4;
-                    col = idx % 4;
-                    row = Math.floor(idx / 4);
-                } else if (w > h) {
-                    // Horizontal Strip (16x1)
-                    tileW = w / 16;
-                    tileH = h;
-                    col = idx;
-                    row = 0;
-                } else {
-                    // Vertical Strip (1x16)
-                    tileW = w;
-                    tileH = h / 16;
-                    col = 0;
-                    row = idx;
-                }
-
-                // In PixiJS v8, create texture from source with frame rectangle
-                const tex = new PIXI.Texture({
-                    source: sourceTexture.source,
-                    frame: new PIXI.Rectangle(col * tileW, row * tileH, tileW, tileH)
-                });
-
-                cache[idx] = tex;
-                return tex;
-            }
 
             // Load config from tweaker (config.json) and initialize game
             // config defined in variables.js
@@ -608,6 +1003,9 @@
                 let cameraStartX = 0;
                 let cameraStartY = 0;
 
+                // Prevent browser context menu so RMB reaches game code
+                app.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
                 app.canvas.addEventListener('mousedown', (e) => {
                     if (isAltPressed && e.button === 0) {
                         isDragging = true;
@@ -648,9 +1046,16 @@
 
                     // Mouse-centered zoom logic REMOVED -> Screen Center Zoom
                     if (newZoom !== oldZoom) {
-                        // Just update zoom. Because world.x/y are calculated based on screen center (width/2, height/2),
-                        // changing zoom while keeping camera.x/y constant automatically zooms towards the screen center.
                         camera.zoom = newZoom;
+                    }
+                });
+
+                // Zoom Lock in Normal Mode (tick check)
+                app.ticker.add(() => {
+                    if (!isAltPressed) {
+                        if (Math.abs(camera.zoom - 2.0) > 0.01) {
+                            camera.zoom = 2.0;
+                        }
                     }
                 });
 
@@ -666,18 +1071,27 @@
                 const DUAL_GRID_MAP = {
                     '0000': 12, // The Void
                     '1000': 15, // Inner Corner - Top Left
-                    '0100': 8,  // Inner Corner - Top Right
+                    '0100': 1,  // Inner Corner - Top Right (User Fixed: 8->1)
                     '0010': 0,  // Inner Corner - Bottom Left
-                    '0001': 13, // Inner Corner - Bottom Right
+                    '0001': 15, // Inner Corner - Bottom Right (User Fixed: 13->15)
+
                     '1100': 9,  // Horizontal Edge - Ceiling
-                    '0011': 3,  // Horizontal Edge - Floor
+                    '0011': 10, // Horizontal Edge - Floor (User Fixed: 3->10)
                     '1010': 11, // Vertical Edge - Right Face
                     '0101': 1,  // Vertical Edge - Left Face
                     '0110': 14, // Diagonal - Forward Slash
                     '1001': 4,  // Diagonal - Back Slash
                     '1110': 7,  // Outer Corner - Bottom Right
-                    '1101': 10, // Outer Corner - Bottom Left
-                    '1011': 2,  // Outer Corner - Top Right
+                    '1101': 11, // Outer Corner - Bottom Left (User Fixed: 2->11 - Wait user said 2->11)
+                    // Wait, user said "by 2 i ment 11". In my map 11 is '1010' (Vert Right).
+                    // If user means the SHAPE at index 2 should use sprite 11:
+                    // '1011' -> 2. So '1011' -> 11.
+                    // But '1101' was 10. Let's assume user refers to the KEY 2 (Outer TR)?
+                    // "image 2 (TL:1, TR:0, BL:1, BR:1) same as 8 ... by 2 i ment 11"
+                    // My previous map: '1011': 2.
+                    // New map: '1011': 11.
+
+                    '1011': 11,  // Outer Corner - Top Right (User Fixed: 2->11)
                     '0111': 5,  // Outer Corner - Top Left
                     '1111': 6   // Full Solid
                 };
@@ -697,49 +1111,112 @@
                 // Create placeholder texture when image files are missing
                 function createPlaceholderTexture(color) {
                     const canvas = document.createElement('canvas');
-                    canvas.width = 64; // 4x4 grid of 16x16 tiles
+                    canvas.width = 64; // 4x4 grid of 16x16 tiles = 16 frames
                     canvas.height = 64;
                     const ctx = canvas.getContext('2d');
+
+                    // Fill with color
                     ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
                     ctx.fillRect(0, 0, 64, 64);
+
+                    // Add debug border/checkerboard to see it's a placeholder
+                    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    for (let i = 0; i <= 4; i++) {
+                        ctx.moveTo(i * 16, 0); ctx.lineTo(i * 16, 64);
+                        ctx.moveTo(0, i * 16); ctx.lineTo(64, i * 16);
+                    }
+                    ctx.stroke();
+
                     return PIXI.Texture.from(canvas);
                 }
 
 
-
-                // Load function with explicit logging
+                // Load function with explicit logging and Slicing
                 async function loadAssets() {
                     const loadTexture = async (path, placeholderColor) => {
+                        let tex;
                         try {
-                            const tex = await PIXI.Assets.load(path);
+                            tex = await PIXI.Assets.load(path);
                             tex.source.scaleMode = 'nearest';
                             console.log(`[Assets] Loaded: ${path}`);
-                            return tex;
                         } catch (e) {
                             console.warn(`[Assets] Failed: ${path}`, e);
-                            return createPlaceholderTexture(placeholderColor);
+                            tex = createPlaceholderTexture(placeholderColor);
                         }
+
+                        // SLICE into 16x16 frames
+                        const frames = [];
+                        // Check for 4x4 Grid (Dual Grid)
+                        // Heuristic: Square aspect ratio AND width >= 64 (4 * TILE_SIZE)
+                        const isSquare = tex.width === tex.height;
+                        const isGridCompatible = tex.width >= 64;
+
+                        let frameW = TILE_SIZE;
+                        let frameH = TILE_SIZE;
+                        let cols = Math.floor(tex.width / TILE_SIZE);
+                        let rows = Math.floor(tex.height / TILE_SIZE);
+
+                        if (isSquare && isGridCompatible) {
+                            // Force 4x4 grid slicing for HD textures
+                            cols = 4;
+                            rows = 4;
+                            frameW = tex.width / 4;
+                            frameH = tex.height / 4;
+                        }
+
+                        if (cols === 0 || rows === 0) {
+                            // Fallback
+                            frames.push(new PIXI.Texture({
+                                source: tex.source,
+                                frame: new PIXI.Rectangle(0, 0, tex.width, tex.height)
+                            }));
+                        } else {
+                            for (let y = 0; y < rows; y++) {
+                                for (let x = 0; x < cols; x++) {
+                                    frames.push(new PIXI.Texture({
+                                        source: tex.source,
+                                        frame: new PIXI.Rectangle(x * frameW, y * frameH, frameW, frameH)
+                                    }));
+                                }
+                            }
+                        }
+
+                        // Dual Grid fallback: If we don't have enough frames (need 16 for indices 0-15),
+                        // fill the rest with the first frame (or last) to prevent crashing/invisible tiles.
+                        while (frames.length < 16) {
+                            frames.push(frames[0]);
+                        }
+
+                        tex.textures = frames; // Attach for Dual Grid use in rchunks
+                        return tex;
                     };
 
-                    const [dirt, grass, water, sand, select, crosshair] = await Promise.all([
-                        loadTexture('../Assets/Image/Tile/dirt.png', 0x8B4513),
-                        loadTexture('../Assets/Image/Tile/grass.png', 0x228B22),
-                        loadTexture('../TempImage/water.png', 0x1E90FF),
-                        loadTexture('../TempImage/sand.png', 0xF4A460),
-                        PIXI.Assets.load('../Assets/Image/select.png').catch((e) => {
-                            console.warn('select.png missing', e);
-                            const c = document.createElement('canvas');
-                            c.width = 32; c.height = 16;
-                            const ctx = c.getContext('2d');
-                            ctx.strokeStyle = '#FFF'; ctx.lineWidth = 2; ctx.strokeRect(16, 0, 16, 16);
-                            return PIXI.Texture.from(c);
-                        }),
-                        PIXI.Assets.load('../Assets/Image/crosshair.png').catch(() => {
-                            const c = document.createElement('canvas'); c.width = 16; c.height = 16;
-                            const ctx = c.getContext('2d'); ctx.fillStyle = '#FFF'; ctx.fillRect(7, 0, 2, 16); ctx.fillRect(0, 7, 16, 2);
-                            return PIXI.Texture.from(c);
-                        })
+                    const [dirt, grass, water, sand, select, crosshair, tdirt, tsand] = await Promise.all([
+                        loadTexture('/Assets/Image/Tile/dirt.png', 0x5d4037),
+                        loadTexture('/Assets/Image/Tile/grass.png', 0x2e8b57),
+                        loadTexture('/TempImage/twater.png', 0x1e90ff),
+                        loadTexture('/Assets/Image/sand.png', 0xf4a460),
+                        loadTexture('/Assets/Image/select.png', 0xffffff),
+                        loadTexture('/Assets/Image/crosshair.png', 0xff0000),
+                        loadTexture('/TempImage/tdirt.png', 0x8b4513), // Dirt Dual Grid Texture
+                        loadTexture('/TempImage/tsand.png', 0xf4a460)  // Sand Dual Grid Texture
                     ]);
+
+                    // Expose textures globally so rchunks can access them (Correct Location)
+                    window.textures = {
+                        dirt, grass, water, sand, select, crosshair, tdirt, tsand
+                    };
+
+                    // Assign to global texture variables
+                    dirtTex = tdirt; // Use tdirt.png for Dirt (ID 1)
+                    grassTex = grass;
+                    waterTex = water;
+                    sandTex = tsand; // Use tsand.png for Sand Dual Grid (ID 3)
+                    selectTex = select;
+                    crosshairTex = crosshair;
+
 
                     if (select) select.source.scaleMode = 'nearest';
                     if (crosshair) crosshair.source.scaleMode = 'nearest';
@@ -956,7 +1433,7 @@
                     }
 
                     // WRAPPED Game Loop (Started after loading)
-                    function startGameLoop() {
+                    window.startGameLoop = function startGameLoop() {
                         let lastTime = performance.now();
                         let lastLODState = false; // Track LOD state for threshold crossing
 
@@ -1064,6 +1541,8 @@
                                 selectSprite.x = hoveredTileX * TILE_SIZE;
                                 selectSprite.y = hoveredTileY * TILE_SIZE;
                                 selectSprite.visible = !isAltPressed; // Hide in freelook
+                                // Switch texture: pressed (frame 1) when clicking, normal (frame 0) otherwise
+                                selectSprite.texture = (mouse.left || mouse.right) ? selectTexPressed : selectTexNormal;
                             }
 
                             // Define setTile if missing (Wrapper for WS)
@@ -1080,7 +1559,7 @@
                                 };
                             }
 
-                            // Handle input (left=break/dirt, right=place/grass)
+                            // Handle input (left=break, right=place)
                             const isInteractable = !isAltPressed && !camera.freelook;
 
                             // Only allow building in normal mode, not in freelook
@@ -1088,15 +1567,15 @@
                                 const worldX = Math.floor((mouse.x - world.x) / camera.zoom / TILE_SIZE);
                                 const worldY = Math.floor((mouse.y - world.y) / camera.zoom / TILE_SIZE);
 
-                                let actionVal = -1; // -1 = Do Nothing
+                                let actionVal = null; // null = Do Nothing
 
-                                // --- NORMAL MODE (Offhand Removed) ---
-                                // LMB -> Active Slot Primary (0)
-                                // RMB -> Active Slot Secondary (1)
-                                if (mouse.left) actionVal = 0;
-                                if (mouse.right) actionVal = 1;
+                                // --- Block Interaction ---
+                                // LMB -> Break (set to -1 = white/empty)
+                                // RMB -> Place selected block
+                                if (mouse.left) actionVal = -1; // Break (white/empty)
+                                if (mouse.right) actionVal = window.selectedBlock; // Place
 
-                                if (actionVal !== -1) {
+                                if (actionVal !== null) {
                                     if (mouse.lastX !== undefined && mouse.lastY !== undefined) {
                                         // Bresenham's Line
                                         let x0 = mouse.lastX;
@@ -1194,9 +1673,19 @@
                             // Render function - chunk-based with caching
 
                             // Chunk Rendering Function - assign to outer scope variable
+                            // Chunk Rendering Function - assign to outer scope variable
                             // Renamed to rchunks per user request
+
+                            function getTileTexture(baseTex, idx) {
+                                if (baseTex && baseTex.textures && baseTex.textures[idx]) {
+                                    return baseTex.textures[idx];
+                                }
+                                return baseTex;
+                            }
+
                             function rchunks(cx, cy) {
                                 window.rchunks = rchunks; // Global alias
+                                renderChunk = rchunks; // Fix: Assign to renderChunk so dirty chunk handler works
                                 const key = `${cx},${cy}`;
 
                                 // Check if chunk data exists. If not, request it and skip this frame
@@ -1206,7 +1695,7 @@
                                     return; // Will render next frame when data arrives
                                 }
 
-                                // CLEANUP: Remove old container if it exists (Fixes duplicate rendering)
+                                // CLEANUP: Remove old container if it exists
                                 if (chunkContainers.has(key)) {
                                     const containers = chunkContainers.get(key);
                                     if (containers.dirt) {
@@ -1226,244 +1715,272 @@
                                 const chunkDirt = new PIXI.Container();
                                 const chunkGrass = new PIXI.Container();
 
-                                try {
-                                    // 1. DIRT BACKGROUND (Base Layer)
-                                    // Robust Pattern Creation: Create a standalone texture for TilingSprite
-                                    // to avoid WebGL sub-texture tiling issues.
-                                    if (!dirtPatternTex) {
-                                        const c = document.createElement('canvas');
-                                        c.width = TILE_SIZE; c.height = TILE_SIZE;
-                                        const ctx = c.getContext('2d');
+                                // try { (Removed to allow bubbling)
+                                // === PASS 1: Solid color background for all tiles ===
+                                const graphics = new PIXI.Graphics();
 
-                                        // Attempt to draw frame 6 from source
-                                        const src = dirtTex.source.resource;
-                                        if (src && (src instanceof HTMLImageElement || src instanceof ImageBitmap)) {
-                                            // Frame 6 corresponds to col 2, row 1 in 4x4 grid (Indices: 0,1,2,3 / 4,5,6,7)
-                                            // Wait: Index 6. Row = floor(6/4) = 1. Col = 6%4 = 2.
-                                            // 16px tiles.
-                                            ctx.drawImage(src, 32, 16, 16, 16, 0, 0, 16, 16);
-                                        } else {
-                                            // Fallback: Solid Dirt Color
-                                            ctx.fillStyle = '#5d4037'; // Dark dirt brown
-                                            ctx.fillRect(0, 0, 16, 16);
-                                        }
-                                        dirtPatternTex = PIXI.Texture.from(c);
+                                for (let y = 0; y < CHUNK_SIZE; y++) {
+                                    for (let x = 0; x < CHUNK_SIZE; x++) {
+                                        const tileVal = chunk[y][x];
+                                        let color = 0x000000; // Black = Bedrock (unbreakable look)
+
+                                        if (tileVal === 0) color = 0x1E90FF; // Ocean Blue (0)
+                                        else if (tileVal === 1) color = 0x8B4513; // Dirt Brown (1)
+                                        else if (tileVal === 2) color = 0x228B22; // Grass Green (2)
+                                        else if (tileVal === 3) color = 0xF4A460; // Sand (3)
+
+                                        graphics.beginFill(color);
+                                        graphics.drawRect(
+                                            x * TILE_SIZE,
+                                            y * TILE_SIZE,
+                                            TILE_SIZE, TILE_SIZE
+                                        );
+                                        graphics.endFill();
                                     }
-
-                                    const chunkBg = new PIXI.TilingSprite({
-                                        texture: dirtPatternTex,
-                                        width: CHUNK_SIZE * TILE_SIZE,
-                                        height: CHUNK_SIZE * TILE_SIZE
-                                    });
-                                    chunkDirt.addChild(chunkBg);
-                                } catch (e) {
-                                    console.error('Error creating chunk background:', e);
-                                    // Fallback to prevent crash
                                 }
 
-                                // LOD: ...
+                                chunkDirt.addChild(graphics);
 
-                                // LOD: If zoomed out below threshold, render simple colored tiles (Minimap style)
-                                if (camera.zoom < config.lodThreshold) {
-                                    const graphics = new PIXI.Graphics();
-                                    for (let ty = 0; ty < CHUNK_SIZE; ty++) {
-                                        for (let tx = 0; tx < CHUNK_SIZE; tx++) {
-                                            const tileVal = chunk[ty][tx];
-                                            // Simple color mapping for LOD
-                                            let color = avgDirtColor;
-                                            if (tileVal === 1) color = 0x1E90FF; // Water
-                                            else if (tileVal === 2) color = avgGrassColor; // Grass
-                                            else if (tileVal === 3) color = 0xF4A460; // Sand
+                                chunkDirt.addChild(graphics);
 
-                                            graphics.beginFill(color);
-                                            graphics.drawRect(
-                                                (cx * CHUNK_SIZE + tx) * TILE_SIZE,
-                                                (cy * CHUNK_SIZE + ty) * TILE_SIZE,
-                                                TILE_SIZE, TILE_SIZE
-                                            );
-                                            graphics.endFill();
-                                        }
-                                    }
-                                    chunkDirt.addChild(graphics);
-                                    chunkContainers.set(key, { dirt: chunkDirt, grass: chunkGrass });
-                                    dirtLayer.addChild(chunkDirt);
-                                    return;
-                                }
+                                // === MULTI-PASS DUAL GRID (Water -> Dirt -> Grass -> Sand) ===
+                                const worldStartX = cx * CHUNK_SIZE;
+                                const worldStartY = cy * CHUNK_SIZE;
 
-                                // 2. FEATURE TILES (Water, Grass, Sand)
-                                // Render on top of the Dirt Background using Dual Grid texturing
-                                // IDs: 0=Dirt, 1=Water, 2=Grass, 3=Sand
-                                for (let ty = 0; ty < CHUNK_SIZE; ty++) {
-                                    for (let tx = 0; tx < CHUNK_SIZE; tx++) {
-                                        const worldX = cx * CHUNK_SIZE + tx;
-                                        const worldY = cy * CHUNK_SIZE + ty;
-                                        const tileVal = chunk[ty][tx];
+                                // Define layers using global textures
+                                const layers = [
+                                    { id: 0, tex: window.textures.water },
+                                    { id: 1, tex: window.textures.tdirt },
+                                    { id: 2, tex: window.textures.grass },
+                                    { id: 3, tex: window.textures.tsand }
+                                ];
 
-                                        if (tileVal === 0) continue; // Skip Dirt (Handled by Background Layer)
+                                for (const layer of layers) {
+                                    if (layer.tex && layer.tex.textures) {
+                                        for (let y = -1; y < CHUNK_SIZE; y++) {
+                                            for (let x = -1; x < CHUNK_SIZE; x++) {
+                                                const wx = worldStartX + x;
+                                                const wy = worldStartY + y;
 
-                                        let tex = null;
-                                        let layer = chunkDirt; // Default layer (Base/Water/Sand)
+                                                const idx = getDgIdx(wx, wy, layer.id);
 
-                                        if (tileVal === 1) { // Water
-                                            const idx = getDualGridIdx(worldX, worldY, 1);
-                                            tex = getTileTexture(waterTex, idx);
-                                        } else if (tileVal === 2) { // Grass
-                                            const idx = getDualGridIdx(worldX, worldY, 2);
-                                            tex = getTileTexture(grassTex, idx);
-                                            layer = chunkGrass; // Grass goes to upper layer (z=10)
-                                        } else if (tileVal === 3) { // Sand
-                                            const idx = getDualGridIdx(worldX, worldY, 3);
-                                            tex = getTileTexture(sandTex, idx);
-                                        }
+                                                // Image 12 is fully empty (0000) - skip rendering
+                                                if (idx === 12) continue;
 
-                                        if (tex) {
-                                            const sprite = new PIXI.Sprite(tex);
-                                            // Dual Grid Offset: Center sprite on intersection (Bottom-Right of logical tile)
-                                            sprite.x = worldX * TILE_SIZE + (TILE_SIZE / 2);
-                                            sprite.y = worldY * TILE_SIZE + (TILE_SIZE / 2);
-                                            sprite.width = TILE_SIZE;
-                                            sprite.height = TILE_SIZE;
-                                            layer.addChild(sprite);
+                                                const tex = layer.tex.textures[idx];
+                                                if (!tex) continue;
+
+                                                const sprite = new PIXI.Sprite(tex);
+                                                sprite.x = x * TILE_SIZE + TILE_SIZE / 2;
+                                                sprite.y = y * TILE_SIZE + TILE_SIZE / 2;
+                                                sprite.width = TILE_SIZE;
+                                                sprite.height = TILE_SIZE;
+                                                chunkGrass.addChild(sprite);
+                                            }
                                         }
                                     }
                                 }
+
+                                // Position chunk container
+                                chunkDirt.x = cx * CHUNK_SIZE * TILE_SIZE;
+                                chunkDirt.y = cy * CHUNK_SIZE * TILE_SIZE;
+                                chunkGrass.x = cx * CHUNK_SIZE * TILE_SIZE;
+                                chunkGrass.y = cy * CHUNK_SIZE * TILE_SIZE;
 
                                 chunkContainers.set(key, { dirt: chunkDirt, grass: chunkGrass });
                                 dirtLayer.addChild(chunkDirt);
                                 grassLayer.addChild(chunkGrass);
+
+                                chunkContainers.set(key, { dirt: chunkDirt, grass: chunkGrass });
+                                dirtLayer.addChild(chunkDirt);
+                                grassLayer.addChild(chunkGrass);
+
+                                // } catch (e) { ... } (Removed)
                             }
 
                             function render() {
-                                // Skip if rchunks not ready yet
-                                if (!rchunks) return;
+                                window.render = render; // Global alias
+                                try {
+                                    // Skip if rchunks not ready yet
+                                    if (!rchunks) return;
 
-                                // Reset chunk count each frame
-                                chunksRendered = 0;
+                                    // Reset chunk count each frame
+                                    chunksRendered = 0;
 
-                                // Check if we crossed LOD threshold
-                                const currentLODState = camera.zoom < config.lodThreshold;
-                                if (lastLODState !== currentLODState) {
-                                    // Clear all chunks when crossing LOD threshold
-                                    for (const [key, containers] of chunkContainers.entries()) {
-                                        if (containers.dirt) {
-                                            dirtLayer.removeChild(containers.dirt);
-                                            containers.dirt.destroy();
+                                    // Check if we crossed LOD threshold
+                                    const currentLODState = camera.zoom < config.lodThreshold;
+                                    if (lastLODState !== currentLODState) {
+                                        // Clear all chunks when crossing LOD threshold
+                                        for (const [key, containers] of chunkContainers.entries()) {
+                                            if (containers.dirt) {
+                                                dirtLayer.removeChild(containers.dirt);
+                                                containers.dirt.destroy();
+                                            }
+                                            if (containers.grass) {
+                                                grassLayer.removeChild(containers.grass);
+                                                containers.grass.destroy();
+                                            }
                                         }
-                                        if (containers.grass) {
-                                            grassLayer.removeChild(containers.grass);
-                                            containers.grass.destroy();
-                                        }
+                                        chunkContainers.clear();
+                                        lastLODState = currentLODState;
                                     }
-                                    chunkContainers.clear();
-                                    lastLODState = currentLODState;
-                                }
 
-                                // AGGRESSIVE GC: Prevent memory leaks
-                                if (chunks.size > 1000) {
-                                    // Calculate player chunk position for GC
-                                    const playerChunkX = Math.floor(player.x / TILE_SIZE / CHUNK_SIZE);
-                                    const playerChunkY = Math.floor(player.y / TILE_SIZE / CHUNK_SIZE);
-                                    const renderDistance = config.renderDistance;
+                                    // AGGRESSIVE GC: Prevent memory leaks
+                                    if (chunks.size > 1000) {
+                                        // Calculate player chunk position for GC
+                                        const playerChunkX = Math.floor(player.x / TILE_SIZE / CHUNK_SIZE);
+                                        const playerChunkY = Math.floor(player.y / TILE_SIZE / CHUNK_SIZE);
+                                        const renderDistance = config.renderDistance;
 
-                                    // Force cleanup of ANY chunk outside view + buffer
-                                    for (const key of chunks.keys()) {
-                                        const [cx, cy] = key.split(',').map(Number);
-                                        if (Math.abs(cx - playerChunkX) > renderDistance + 2 ||
-                                            Math.abs(cy - playerChunkY) > renderDistance + 2) {
-                                            chunks.delete(key);
-                                        }
-                                    }
-                                }
-
-                                // Calculate visible bounds based on viewport
-                                const viewHalfW = (app.screen.width / camera.zoom) / 2;
-                                const viewHalfH = (app.screen.height / camera.zoom) / 2;
-
-                                // Convert to chunk coordinates - limit to render distance from config
-                                const maxRenderDist = Math.min(config.renderDistance, 32); // Increased cap for Infinite World feel
-
-                                // Calculate viewport-based chunk range
-                                // Increased pad (2 chunks) to prevent clipping of edge sprites (Dual Grid)
-                                let startChunkX = Math.floor((camera.x - viewHalfW) / (TILE_SIZE * CHUNK_SIZE)) - 2;
-                                let endChunkX = Math.ceil((camera.x + viewHalfW) / (TILE_SIZE * CHUNK_SIZE)) + 2;
-                                let startChunkY = Math.floor((camera.y - viewHalfH) / (TILE_SIZE * CHUNK_SIZE)) - 2;
-                                let endChunkY = Math.ceil((camera.y + viewHalfH) / (TILE_SIZE * CHUNK_SIZE)) + 2;
-
-                                // Also limit by render distance from player chunk
-                                const playerChunkXCenter = Math.floor(player.x / TILE_SIZE / CHUNK_SIZE);
-                                const playerChunkYCenter = Math.floor(player.y / TILE_SIZE / CHUNK_SIZE);
-                                startChunkX = Math.max(startChunkX, playerChunkXCenter - maxRenderDist);
-                                endChunkX = Math.min(endChunkX, playerChunkXCenter + maxRenderDist);
-                                startChunkY = Math.max(startChunkY, playerChunkYCenter - maxRenderDist);
-                                endChunkY = Math.min(endChunkY, playerChunkYCenter + maxRenderDist);
-
-                                // Determine which chunks should be visible
-                                const chunksToRender = new Set();
-                                for (let cy = startChunkY; cy <= endChunkY; cy++) {
-                                    for (let cx = startChunkX; cx <= endChunkX; cx++) {
-                                        chunksToRender.add(`${cx},${cy}`);
-                                    }
-                                }
-
-                                // Remove chunks that are WAY out of range (Hysteresis for Caching)
-                                // Don't destroy immediately if just off-screen.
-                                const camChunkX = Math.floor(camera.x / (TILE_SIZE * CHUNK_SIZE));
-                                const camChunkY = Math.floor(camera.y / (TILE_SIZE * CHUNK_SIZE));
-
-                                // In Freelook, keep chunks loaded much longer ("Break limits")
-                                // Normal: renderDist + 4. Freelook: 50 (Huge cache).
-                                const unloadDist = isAltPressed ? 50 : (Math.ceil(config.renderDistance / camera.zoom) + 4);
-
-                                for (const [key, containers] of chunkContainers.entries()) {
-                                    const [kcx, kcy] = key.split(',').map(Number);
-
-                                    // Distance check from camera center
-                                    if (Math.abs(kcx - camChunkX) > unloadDist ||
-                                        Math.abs(kcy - camChunkY) > unloadDist) {
-
-                                        if (containers.dirt) {
-                                            dirtLayer.removeChild(containers.dirt);
-                                            containers.dirt.destroy({ children: true });
-                                        }
-                                        if (containers.grass) {
-                                            grassLayer.removeChild(containers.grass);
-                                            containers.grass.destroy({ children: true }); // Ensure children destroyed
-                                        }
-                                        chunkContainers.delete(key);
-                                    }
-                                }
-
-                                // Render new chunks (only if not already rendered)
-                                // Turbo Mode in Freelook: "Break its maximum"
-                                let limit = config.maxChunksPerFrame || 10;
-                                if (isAltPressed) limit = 200; // Allow massive chunk loading in freelook
-
-                                let chunksCreated = 0;
-
-                                // Loop through chunks (standard scanline order: top-to-bottom)
-                                for (const key of chunksToRender) {
-                                    if (!chunkContainers.has(key)) {
-                                        if (chunksCreated < limit) {
+                                        // Force cleanup of ANY chunk outside view + buffer
+                                        for (const key of chunks.keys()) {
                                             const [cx, cy] = key.split(',').map(Number);
-                                            rchunks(cx, cy);
-                                            chunksCreated++;
+                                            if (Math.abs(cx - playerChunkX) > renderDistance + 2 ||
+                                                Math.abs(cy - playerChunkY) > renderDistance + 2) {
+                                                chunks.delete(key);
+                                            }
                                         }
-                                        // If we hit limit, we just stop creating for this frame. 
-                                        // They will be picked up next frame.
                                     }
-                                    chunksRendered++;
+
+                                    // Calculate visible bounds based on viewport
+                                    const viewHalfW = (app.screen.width / camera.zoom) / 2;
+                                    const viewHalfH = (app.screen.height / camera.zoom) / 2;
+
+                                    // Convert to chunk coordinates - limit to render distance from config
+                                    const maxRenderDist = Math.min(config.renderDistance, 32); // Increased cap for Infinite World feel
+
+                                    // Calculate viewport-based chunk range
+                                    // Increased pad (2 chunks) to prevent clipping of edge sprites (Dual Grid)
+                                    let startChunkX = Math.floor((camera.x - viewHalfW) / (TILE_SIZE * CHUNK_SIZE)) - 2;
+                                    let endChunkX = Math.ceil((camera.x + viewHalfW) / (TILE_SIZE * CHUNK_SIZE)) + 2;
+                                    let startChunkY = Math.floor((camera.y - viewHalfH) / (TILE_SIZE * CHUNK_SIZE)) - 2;
+                                    let endChunkY = Math.ceil((camera.y + viewHalfH) / (TILE_SIZE * CHUNK_SIZE)) + 2;
+
+                                    // Also limit by render distance from player chunk
+                                    const playerChunkXCenter = Math.floor(player.x / TILE_SIZE / CHUNK_SIZE);
+                                    const playerChunkYCenter = Math.floor(player.y / TILE_SIZE / CHUNK_SIZE);
+                                    startChunkX = Math.max(startChunkX, playerChunkXCenter - maxRenderDist);
+                                    endChunkX = Math.min(endChunkX, playerChunkXCenter + maxRenderDist);
+                                    startChunkY = Math.max(startChunkY, playerChunkYCenter - maxRenderDist);
+                                    endChunkY = Math.min(endChunkY, playerChunkYCenter + maxRenderDist);
+
+                                    // Determine which chunks should be visible
+                                    const chunksToRender = new Set();
+                                    for (let cy = startChunkY; cy <= endChunkY; cy++) {
+                                        for (let cx = startChunkX; cx <= endChunkX; cx++) {
+                                            chunksToRender.add(`${cx},${cy}`);
+                                        }
+                                    }
+
+                                    // Remove chunks that are WAY out of range (Hysteresis for Caching)
+                                    // Don't destroy immediately if just off-screen.
+                                    const camChunkX = Math.floor(camera.x / (TILE_SIZE * CHUNK_SIZE));
+                                    const camChunkY = Math.floor(camera.y / (TILE_SIZE * CHUNK_SIZE));
+
+                                    // In Freelook, keep chunks loaded much longer ("Break limits")
+                                    // Normal: renderDist + 4. Freelook: 50 (Huge cache).
+                                    const unloadDist = isAltPressed ? 50 : (Math.ceil(config.renderDistance / camera.zoom) + 4);
+
+                                    for (const [key, containers] of chunkContainers.entries()) {
+                                        const [kcx, kcy] = key.split(',').map(Number);
+
+                                        // Distance check from camera center
+                                        // Distance check from camera center
+                                        if (Math.abs(kcx - camChunkX) > unloadDist ||
+                                            Math.abs(kcy - camChunkY) > unloadDist) {
+
+                                            if (containers.dirt) {
+                                                dirtLayer.removeChild(containers.dirt);
+                                                containers.dirt.destroy({ children: true });
+                                            }
+                                            if (containers.grass) {
+                                                grassLayer.removeChild(containers.grass);
+                                                containers.grass.destroy({ children: true }); // Ensure children destroyed
+                                            }
+                                            chunkContainers.delete(key);
+                                        }
+                                    }
+
+                                    // Render new chunks (only if not already rendered)
+                                    // Turbo Mode in Freelook: "Break its maximum"
+                                    let limit = config.maxChunksPerFrame || 10;
+                                    if (isAltPressed) limit = 200; // Allow massive chunk loading in freelook
+
+                                    let chunksCreated = 0;
+
+                                    // Process Dirty Chunks First (Immediate Updates)
+                                    if (window.dirtyChunks && window.dirtyChunks.size > 0) {
+                                        for (const key of window.dirtyChunks) {
+                                            // Force re-render if it's within render distance
+                                            if (chunksToRender.has(key)) {
+                                                const [cx, cy] = key.split(',').map(Number);
+                                                // Cleaning old container
+                                                if (chunkContainers.has(key)) {
+                                                    const containers = chunkContainers.get(key);
+                                                    if (containers.dirt) {
+                                                        dirtLayer.removeChild(containers.dirt);
+                                                        containers.dirt.destroy({ children: true });
+                                                    }
+                                                    if (containers.grass) {
+                                                        grassLayer.removeChild(containers.grass);
+                                                        containers.grass.destroy({ children: true });
+                                                    }
+                                                    chunkContainers.delete(key);
+                                                }
+                                                rchunks(cx, cy);
+                                                chunksCreated++;
+                                            }
+                                        }
+                                        window.dirtyChunks.clear();
+                                    }
+
+                                    // Loop through chunks (standard scanline order: top-to-bottom)
+                                    for (const key of chunksToRender) {
+                                        if (!chunkContainers.has(key)) {
+                                            if (chunksCreated < limit) {
+                                                const [cx, cy] = key.split(',').map(Number);
+                                                rchunks(cx, cy);
+                                                chunksCreated++;
+                                            }
+                                            // If we hit limit, we just stop creating for this frame. 
+                                            // They will be picked up next frame.
+                                        }
+                                        chunksRendered++;
+                                    }
+
+                                    // Update stats - Cached and Rendered (no Loading indicator)
+                                    const fps = Math.round(app.ticker.FPS);
+                                    // Tick Timer (Simulated by server response or local delta?)
+                                    // For now, just show FPS and Chunk Stats as requested
+                                    const activeChunks = chunkContainers.size;
+                                    const cachedChunks = chunks.size;
+
+                                    // Frame Timer: app.ticker.elapsedMS
+                                    const frameTime = app.ticker.elapsedMS.toFixed(2);
+
+                                    // Update player graphics
+                                    window.playerGraphics.clear();
+                                    window.playerGraphics.beginFill(0xFF0000); // Red circle for ugliness
+                                    window.playerGraphics.drawCircle(0, 0, 6); // 6px radius
+                                    window.playerGraphics.endFill();
+                                    window.playerGraphics.x = player.x;
+                                    window.playerGraphics.y = player.y;
+
+                                    // Update info text
+                                    updateInfoDisplay();
+
+                                } catch (err) {
+                                    console.error("Render Error:", err);
+                                    app.ticker.stop();
+                                    const errDiv = document.createElement('div');
+                                    errDiv.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);color:#ff5555;font-family:monospace;padding:20px;z-index:999999;white-space:pre-wrap;overflow:auto;pointer-events:all;";
+                                    errDiv.innerHTML = "<h1>GAME CRASHED</h1><h2>" + err.toString() + "</h2><hr/>stack trace:<br/>" + (err.stack || "No stack trace");
+                                    document.body.appendChild(errDiv);
                                 }
-
-                                // Update stats - Cached and Rendered (no Loading indicator)
-                                const fps = Math.round(app.ticker.FPS);
-                                const activeChunks = chunkContainers.size;
-                                const cachedChunks = chunks.size;
-                                document.getElementById('info').textContent = `FPS: ${fps} | x: ${Math.floor(player.x)} y: ${Math.floor(player.y)} | Zoom: ${camera.zoom.toFixed(2)}x | Rendered: ${activeChunks} | Cached: ${cachedChunks}`;
-
-
                             } // End render
 
                             // Update Grid Positions
+                            // Grid toggle via G key (no longer forced)
                             if (typeof renderOverlays === 'function') renderOverlays();
                         });
                     } // End startGameLoop
@@ -1472,6 +1989,9 @@
                     let overlayGraphics = null;
 
                     function renderOverlays() {
+                        // Debug log to confirm function entry and grid state
+                        // console.log("renderOverlays called. showGrid:", window.showGrid); 
+
                         // Skip overlay rendering entirely if grid is disabled (massive performance boost)
                         if (!window.showGrid) {
                             if (overlayGraphics) {
@@ -1509,10 +2029,14 @@
 
 
                         /* BLOCK GRID RESTORED (User Request) */
+                        // Grid toggle via G key (no longer forced on)
+
                         if (window.showGrid) {
                             // Hairline Grid: Width scales inversely with zoom to stay 1px on screen
                             // Increased alpha because thin lines are harder to see
-                            overlayGraphics.lineStyle(1 / Math.max(camera.zoom, 0.1), 0xFF0000, 0.8); // Red Grid
+                            // FIXED: Thicker line (2px base) and higher alpha (0.5) for visibility
+                            const lineWidth = Math.max(1, 1 / Math.max(camera.zoom, 0.1));
+                            overlayGraphics.lineStyle(lineWidth, 0xFF0000, 0.5); // Red Grid
 
                             // Vertical Lines (x)
                             // startX/endX are in Tile Units. Iterate through each tile column.
@@ -1534,7 +2058,7 @@
 
                         /* GREEN HIGHLIGHT LOOP REMOVED (Performance Optimization) */
 
-                        // 2. Blue chunk boundaries
+                        // 2. Blue chunk boundaries (User Request: chunk=blue, block=red)
                         overlayGraphics.lineStyle(2, 0x0000ff, 0.5);
                         const chunkStartX = Math.floor(startX / CHUNK_SIZE) * CHUNK_SIZE;
                         const chunkEndX = Math.ceil(endX / CHUNK_SIZE) * CHUNK_SIZE;
@@ -1557,13 +2081,9 @@
 
 
                     // HTML Cursor Logic (Simple Follower)
-                    const follower = document.getElementById("follower-element");
-                    window.addEventListener('mousemove', (event) => {
-                        const clientX = event.clientX;
-                        const clientY = event.clientY;
-                        follower.style.left = `${clientX}px`;
-                        follower.style.top = `${clientY}px`;
-                    });
+                    // HTML Cursor Logic (Simple Follower) - REMOVED for CSS Cursor
+                    // const follower = document.getElementById("follower-element");
+                    // window.addEventListener('mousemove', (event) => { ... });
 
 
                     // CHUNK FETCHER INTEGRATION (Background Network Thread)
@@ -1686,6 +2206,10 @@
                     console.log("[WS] Socket already active");
                     return;
                 }
+
+                // Initialize Dirty Chunks Set (Real-time Updates)
+                window.dirtyChunks = new Set();
+
                 try {
                     const wsPort = parseInt(location.port) + 1;
                     socket = new WebSocket(`ws://${location.hostname}:${wsPort}`);
@@ -1703,7 +2227,8 @@
 
                         app.canvas.style.opacity = '1';
                         // Start Loop Immediately - No Preloading
-                        startGameLoop();
+                        if (window.startGameLoop) window.startGameLoop();
+                        else console.error("startGameLoop not defined!");
                     };
 
                     socket.onerror = (err) => {
@@ -1729,112 +2254,95 @@
                     };
 
                     socket.onmessage = (event) => {
-                        const msg = event.data;
+                        // console.log("WS Data:", event.data);
+                        let msg = null;
                         try {
-                            const data = JSON.parse(msg);
+                            msg = JSON.parse(event.data);
+                        } catch (e) { return; }
 
-                            // 1. Position Update
-                            if (data.type === 'pos') {
-                                if (data.id === myId) return; // FIXED: Ignore own player
-                                updRemote(data.id, data.x, data.y);
+                        if (msg.type === 'chunk') {
+                            // Store chunk data
+                            // Server sends {type:'chunk', key:'cx,cy', data:'[[...],[...]]'}
+                            const key = msg.key; // Use key directly (server sends key, not x/y)
+                            let chunkData = msg.data;
+
+                            // Server sends data as a string - parse it to a 2D array
+                            if (typeof chunkData === 'string') {
+                                try {
+                                    chunkData = JSON.parse(chunkData);
+                                } catch (e) {
+                                    console.error('Failed to parse chunk data for', key, e);
+                                    return;
+                                }
                             }
-                            // 2. Chunk Data Received
-                            else if (data.type === 'chunk') {
-                                // console.log(`[WS] Loaded Chunk: ${data.key}`); // LOG REMOVED
-                                const key = data.key;
-                                const rawData = data.data; // Now "[1,0,2,...]" or legacy "102..."
 
-                                // Parse Data
-                                const chunk2D = [];
-                                let flatData = [];
-
-                                if (rawData.startsWith('[')) {
-                                    // New JSON Array Format
-                                    try {
-                                        flatData = JSON.parse(rawData);
-                                    } catch (e) {
-                                        console.error("Failed to parse chunk data", e);
-                                        return;
+                            if (Array.isArray(chunkData)) {
+                                // Server sends flat 1D array [v0,v1,...v255]
+                                // Renderer needs 2D array chunk[y][x]
+                                if (chunkData.length > 0 && !Array.isArray(chunkData[0])) {
+                                    // Reshape flat array to 2D (CHUNK_SIZE x CHUNK_SIZE)
+                                    const rows = [];
+                                    for (let r = 0; r < CHUNK_SIZE; r++) {
+                                        rows.push(chunkData.slice(r * CHUNK_SIZE, (r + 1) * CHUNK_SIZE));
                                     }
-                                } else {
-                                    // Legacy String Format (Backup)
-                                    flatData = rawData.split('').map(c => parseInt(c));
+                                    chunkData = rows;
                                 }
-
-                                for (let y = 0; y < CHUNK_SIZE; y++) {
-                                    chunk2D[y] = [];
-                                    for (let x = 0; x < CHUNK_SIZE; x++) {
-                                        chunk2D[y][x] = flatData[y * CHUNK_SIZE + x] || 0;
-                                    }
-                                }
-
-                                chunks.set(key, chunk2D);
-                                if (typeof pendingChunks !== 'undefined') pendingChunks.delete(key);
-
-                                // Re-use logic for dirtying
-                                const [cx, cy] = key.split(',').map(Number);
-                                if (typeof dirtyChunks !== 'undefined') {
-                                    dirtyChunks.add(key);
-                                    dirtyChunks.add(`${cx - 1},${cy}`);
-                                    dirtyChunks.add(`${cx + 1},${cy}`);
-                                    dirtyChunks.add(`${cx},${cy - 1}`);
-                                    dirtyChunks.add(`${cx},${cy + 1}`);
-                                }
-
-                                // Force Re-Render of this chunk if near
-                                // (The main loop will pick it up on next frame automatically)
+                                chunks.set(key, chunkData);
+                                pendingChunks.delete(key);
                             }
-                            // 3. Save Acknowledgement
-                            else if (data.type === 'saveAck') {
-                                console.log("[WS] Save Successful! Chunks saved:", data.count);
-                                // Update UI if needed
-                                const btn = document.getElementById('saveBtn');
-                                if (btn) {
-                                    btn.innerText = "Saved!";
-                                    setTimeout(() => btn.innerText = "Save Game", 2000);
+                            // Mark as dirty to re-render immediately
+                            if (window.dirtyChunks) window.dirtyChunks.add(key);
+
+                        } else if (msg.type === 'block') {
+                            // {"type":"block", "x":..., "y":..., "val":...}
+                            const cx = Math.floor(msg.x / CHUNK_SIZE);
+                            const cy = Math.floor(msg.y / CHUNK_SIZE);
+                            const key = cx + "," + cy;
+
+                            // Update local cache if exists
+                            let cData = chunks.get(key);
+                            if (cData) {
+                                const lx = (msg.x % CHUNK_SIZE + CHUNK_SIZE) % CHUNK_SIZE;
+                                const ly = (msg.y % CHUNK_SIZE + CHUNK_SIZE) % CHUNK_SIZE;
+                                cData[ly][lx] = msg.val;
+
+                                // Dirty THIS chunk
+                                if (window.dirtyChunks) {
+                                    window.dirtyChunks.add(key);
+
+                                    // Dirty NEIGHBORS if on border (for Dual Grid)
+                                    if (lx === 0) window.dirtyChunks.add((cx - 1) + "," + cy);
+                                    if (lx === CHUNK_SIZE - 1) window.dirtyChunks.add((cx + 1) + "," + cy);
+                                    if (ly === 0) window.dirtyChunks.add(cx + "," + (cy - 1));
+                                    if (ly === CHUNK_SIZE - 1) window.dirtyChunks.add(cx + "," + (cy + 1));
                                 }
                             }
-                            // 4. Block Update (from self or others)
-                            else if (data.type === 'setBlock') {
-                                // Update local cache
-                                // {x: 10, y: 20, val: 1}
-                                if (data.id === myId) return; // Ignore own echo to prevent double-render/lag
-
-                                const bx = parseInt(data.x);
-                                const by = parseInt(data.y);
-                                const bval = parseInt(data.val);
-
-                                // Update directly to avoid recursive loop with setTile sending packet again
-                                const bcx = Math.floor(bx / CHUNK_SIZE);
-                                const bcy = Math.floor(by / CHUNK_SIZE);
-                                const btx = ((bx % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-                                const bty = ((by % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-
-                                const chunk = chunks.get(`${bcx},${bcy}`);
-                                if (chunk) {
-                                    chunk[bty][btx] = bval;
-
-                                    // Dirty Chunk for Render
-                                    const bKey = `${bcx},${bcy}`;
-                                    dirtyChunks.add(bKey);
-
-                                    // Dirty Neighbors for Auto-tiling
-                                    if (btx === 0) dirtyChunks.add(`${bcx - 1},${bcy}`);
-                                    if (btx === CHUNK_SIZE - 1) dirtyChunks.add(`${bcx + 1},${bcy}`);
-                                    if (bty === 0) dirtyChunks.add(`${bcx},${bcy - 1}`);
-                                    if (bty === CHUNK_SIZE - 1) dirtyChunks.add(`${bcx},${bcy + 1}`);
-                                }
-                            }
-
-                        } catch (e) {
-                            console.warn("WS Parse Error", e);
+                        } else if (msg.type === 'tps') {
+                            // Server Tick Rate Broadcast
+                            window.currentTPS = msg.val;
                         }
                     };
 
-                    socket.onclose = () => {
-                        console.log("[WS] Disconnected. Retrying in 5s...");
-                        setTimeout(initMP, 5000);
+                    window.updateInfoDisplay = function () {
+                        const fps = Math.round(app.ticker.FPS);
+                        const tps = window.currentTPS || 20;
+                        const x = Math.floor(player.x);
+                        const y = Math.floor(player.y);
+                        const z = camera.zoom.toFixed(2);
+                        const info = document.getElementById('info');
+                        if (info) {
+                            // Shortened Labels (User Request)
+                            info.innerHTML = `FPS:${fps} TPS:${tps} XY:${x},${y} Z:${z}`;
+                        }
                     };
+
+
+
+
+
+
+
+
 
                 } catch (e) {
                     console.error("[WS] Connection Failed", e);
