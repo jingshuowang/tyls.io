@@ -569,6 +569,36 @@
         let pressedKeys = new Set();
         const globalTextureCache = new Map();
 
+        // OBJECT POOL for Sprites to reduce GC stutter (Crucial for mining performance)
+        const spritePool = [];
+        function getSprite(tex) {
+            if (spritePool.length > 0) {
+                const s = spritePool.pop();
+                s.texture = tex;
+                s.visible = true; // Reset visibility
+                s.alpha = 1.0;
+                s.tint = 0xFFFFFF;
+                return s;
+            }
+            return new PIXI.Sprite(tex);
+        }
+        function returnSprite(s) {
+            s.parent.removeChild(s); // Detach first
+            spritePool.push(s);
+        }
+        function returnContainerSprites(container) {
+            // Move all children to pool
+            while (container.children.length > 0) {
+                const s = container.children[0];
+                if (s instanceof PIXI.Sprite) {
+                    returnSprite(s);
+                } else {
+                    // For Graphics or other non-sprites, just destroy
+                    s.destroy();
+                }
+            }
+        }
+
         // Globals
         let app, world, dirtLayer, grassLayer, renderChunk = null, fetchChunkViaWorker = null;
         let db = null; // Database instance
@@ -591,13 +621,24 @@
                 vy /= len;
             }
 
-            // Apply movement
-            if (vx !== 0 || vy !== 0) {
-                player.x += vx * speed;
-                player.y += vy * speed;
-                // Center camera on player
-                // camera.x = player.x - (app.screen.width / 2) / camera.zoom;
-                // camera.y = player.y - (app.screen.height / 2) / camera.zoom;
+            // Apply movement (with Collision for Depth -1)
+            if (vx !== 0) {
+                let newX = player.x + vx * speed;
+                let blockX = Math.floor(newX / TILE_SIZE);
+                let blockY = Math.floor(player.y / TILE_SIZE);
+                let tileX = getTileSafe(blockX, blockY);
+                if (tileX !== 0 && tileX !== 3) {
+                    player.x = newX;
+                }
+            }
+            if (vy !== 0) {
+                let newY = player.y + vy * speed;
+                let blockX = Math.floor(player.x / TILE_SIZE);
+                let blockY = Math.floor(newY / TILE_SIZE);
+                let tileY = getTileSafe(blockX, blockY);
+                if (tileY !== 0 && tileY !== 3) {
+                    player.y = newY;
+                }
             }
         }
 
@@ -721,6 +762,11 @@
             }
 
             app = new PIXI.Application();
+
+            // Disable Pixi's default shared ticker to bypass requestAnimationFrame V-Sync lock
+            PIXI.Ticker.shared.autoStart = false;
+            PIXI.Ticker.shared.stop();
+
             await app.init({
                 width: window.innerWidth,
                 height: window.innerHeight,
@@ -731,9 +777,12 @@
                 preference: 'maximum-performance', // Hint to browser
                 powerPreference: 'high-performance'
             });
-            // Cap FPS to 60 to prevent coil whine and "infinite" FPS lag
-            // User request: "fps is getting limited its capping at like 50" -> Uncap it
+
+            // FPS Uncapped (User requested)
+            // By completely disabling shared ticker default syncing, it forces the app ticker to run 
+            // as fast as possible out of the event loop rather than tying to monitor refresh rate.
             app.ticker.maxFPS = 0;
+            app.ticker.minFPS = 0;
             document.body.appendChild(app.canvas);
 
             // Resize canvas to fill screen (fixes black bar at top)
@@ -1277,38 +1326,84 @@
 
                     let cursorSprite = null; // Removed Sprite Logic
 
-                    // Mouse move handler - just track position
-                    // Mouse move handler - Extremely Lightweight (Just updates data)
+                    // Independent Block Interaction Handler (Decoupled from Framerate)
+                    function handleBlockInteraction(e, isNewClick = false) {
+                        const isInteractable = !isAltPressed && (!camera || !camera.freelook);
+                        if (!isInteractable) return;
+
+                        if (world && camera && world.scale.x !== 0) {
+                            // Calculate world coordinates precisely
+                            const worldX = Math.floor((mouse.x - world.x) / camera.zoom / TILE_SIZE);
+                            const worldY = Math.floor((mouse.y - world.y) / camera.zoom / TILE_SIZE);
+
+                            let actionVal = null;
+                            if (mouse.left) actionVal = -1; // Break
+                            if (mouse.right) actionVal = window.selectedBlock; // Place
+
+                            if (actionVal !== null) {
+                                if (mouse.lastX !== undefined && mouse.lastY !== undefined && !isNewClick) {
+                                    // Bresenham's Line for smooth continuous drawing
+                                    let x0 = mouse.lastX;
+                                    let y0 = mouse.lastY;
+                                    const x1 = worldX;
+                                    const y1 = worldY;
+
+                                    // Prevent websocket spam if still in the exact same tile and not newly clicking
+                                    if (x0 !== x1 || y0 !== y1) {
+                                        const dx = Math.abs(x1 - x0);
+                                        const dy = Math.abs(y1 - y0);
+                                        const sx = (x0 < x1) ? 1 : -1;
+                                        const sy = (y0 < y1) ? 1 : -1;
+                                        let err = dx - dy;
+
+                                        // Step simulation to skip the very first tile (as it was already placed last frame)
+                                        while (true) {
+                                            if (x0 === x1 && y0 === y1) {
+                                                if (typeof setTile === 'function') setTile(x0, y0, actionVal);
+                                                if (typeof window.setTile === 'function') window.setTile(x0, y0, actionVal);
+                                                break;
+                                            }
+                                            const e2 = 2 * err;
+                                            if (e2 > -dy) { err -= dy; x0 += sx; }
+                                            if (e2 < dx) { err += dx; y0 += sy; }
+
+                                            // Place blocks along the line AFTER stepping
+                                            if (typeof setTile === 'function') setTile(x0, y0, actionVal);
+                                            if (typeof window.setTile === 'function') window.setTile(x0, y0, actionVal);
+                                        }
+                                        mouse.lastX = worldX;
+                                        mouse.lastY = worldY;
+                                        if (typeof triggerSave === 'function') triggerSave();
+                                    }
+                                } else {
+                                    if (typeof setTile === 'function') setTile(worldX, worldY, actionVal);
+                                    if (typeof window.setTile === 'function') window.setTile(worldX, worldY, actionVal);
+                                    mouse.lastX = worldX;
+                                    mouse.lastY = worldY;
+                                    if (typeof triggerSave === 'function') triggerSave();
+                                }
+                            }
+                        }
+                    }
+
+                    // Mouse Handler for continuous interaction (Drag/Hold)
                     window.addEventListener('mousemove', (e) => {
                         mouse.x = e.clientX;
                         mouse.y = e.clientY;
+
+                        // Fire interaction on movement if holding
+                        if (mouse.left || mouse.right) {
+                            handleBlockInteraction(e, false);
+                        }
                     });
 
-                    // Synced Cursor: Merged into PixiJS Ticker (The "Engine Heartbeat")
-                    // This ensures the cursor updates exactly when the game renders, removing jitter.
-                    app.ticker.add(() => {
-                        // 1. Cursor handling moved to CSS/HTML
-
-
-                        // 2. Update World Highlight
-                        if (world.scale.x !== 0) {
-                            const worldX = (mouse.x - world.x) / world.scale.x;
-                            const worldY = (mouse.y - world.y) / world.scale.y;
-
-                            hoveredTileX = Math.floor(worldX / TILE_SIZE);
-                            hoveredTileY = Math.floor(worldY / TILE_SIZE);
-
-                            if (selectSprite) {
-                                selectSprite.x = hoveredTileX * TILE_SIZE;
-                                selectSprite.y = hoveredTileY * TILE_SIZE;
-                            }
-                        }
-                    }, PIXI.UPDATE_PRIORITY.INTERACTION); // High priority update
-
-                    // Mouse down - change to pressed texture & visual indicator
+                    // Mouse down - change to pressed texture, visual indicator, & fire instant interaction
                     window.addEventListener('mousedown', (e) => {
+                        let acted = false;
                         if (e.button === 0) {
                             mouse.left = true;
+                            mouse.leftIsNew = true; // For click vs hold logic
+                            acted = true;
                             // Visual Indicator
                             const el = document.getElementById('lmb-indicator');
                             if (el) el.style.opacity = '1.0';
@@ -1317,8 +1412,15 @@
                             if (selectSprite) selectSprite.texture = selectTexPressed;
                         } else if (e.button === 2) {
                             mouse.right = true;
+                            mouse.rightIsNew = true; // For click vs hold logic
+                            acted = true;
                             const el = document.getElementById('rmb-indicator');
                             if (el) el.style.opacity = '1.0';
+                        }
+
+                        // Fire instant action independent of framerate
+                        if (acted) {
+                            handleBlockInteraction(e, true);
                         }
                     });
 
@@ -1334,6 +1436,12 @@
                             mouse.right = false;
                             const el = document.getElementById('rmb-indicator');
                             if (el) el.style.opacity = '0.2';
+                        }
+
+                        if (!mouse.left && !mouse.right) {
+                            // Reset last position if not clicking
+                            mouse.lastX = undefined;
+                            mouse.lastY = undefined;
                         }
                     });
 
@@ -1503,12 +1611,33 @@
                                     dy *= 0.7071;
                                 }
 
-                                player.x += dx * speed;
-                                player.y += dy * speed;
+                                // 2.5D Collision Check (Floor is Depth 0, Blocked is Depth -1)
+                                if (dx !== 0) {
+                                    let newX = player.x + dx * speed;
+                                    let blockX = Math.floor(newX / TILE_SIZE);
+                                    let blockY = Math.floor(player.y / TILE_SIZE);
+                                    let tileX = getTileSafe(blockX, blockY);
+
+                                    // tile 0 = Water, tile 3 = Sand (Depth -1)
+                                    if (tileX !== 0 && tileX !== 3) {
+                                        player.x = newX;
+                                    }
+                                }
+
+                                if (dy !== 0) {
+                                    let newY = player.y + dy * speed;
+                                    let blockX = Math.floor(player.x / TILE_SIZE);
+                                    let blockY = Math.floor(newY / TILE_SIZE);
+                                    let tileY = getTileSafe(blockX, blockY);
+
+                                    if (tileY !== 0 && tileY !== 3) {
+                                        player.y = newY;
+                                    }
+                                }
                             }
 
                             if (!isAltPressed) {
-                                hi(1);
+                                hi(ticker.deltaTime); // Use Ticker Delta for Framerate Independence
                             }
 
                             // Sync Camera to Player Position
@@ -1545,9 +1674,28 @@
                                 selectSprite.texture = (mouse.left || mouse.right) ? selectTexPressed : selectTexNormal;
                             }
 
-                            // Define setTile if missing (Wrapper for WS)
+                            // Define setTile if missing (Wrapper for WS & Client-Side Prediction)
                             if (typeof window.setTile !== 'function') {
                                 window.setTile = function (x, y, val) {
+                                    // 1. Client-Side Prediction (Instant Visual Update)
+                                    const cx = Math.floor(x / CHUNK_SIZE);
+                                    const cy = Math.floor(y / CHUNK_SIZE);
+                                    const key = `${cx},${cy}`;
+
+                                    if (chunks.has(key)) {
+                                        const chunkData = chunks.get(key);
+                                        const localX = x - (cx * CHUNK_SIZE);
+                                        const localY = y - (cy * CHUNK_SIZE);
+                                        const idx = localY * CHUNK_SIZE + localX;
+
+                                        // Only update if actually different to save rendering
+                                        if (chunkData[idx] !== val) {
+                                            chunkData[idx] = val;
+                                            dirtyChunks.add(key); // Queue for instant re-render on next tick
+                                        }
+                                    }
+
+                                    // 2. Network Update (Send to Server)
                                     if (socket && socket.readyState === WebSocket.OPEN) {
                                         socket.send(JSON.stringify({
                                             type: 'setBlock',
@@ -1559,59 +1707,19 @@
                                 };
                             }
 
-                            // Handle input (left=break, right=place)
-                            const isInteractable = !isAltPressed && !camera.freelook;
-
-                            // Only allow building in normal mode, not in freelook
-                            if ((mouse.left || mouse.right) && isInteractable) {
-                                const worldX = Math.floor((mouse.x - world.x) / camera.zoom / TILE_SIZE);
-                                const worldY = Math.floor((mouse.y - world.y) / camera.zoom / TILE_SIZE);
-
-                                let actionVal = null; // null = Do Nothing
-
-                                // --- Block Interaction ---
-                                // LMB -> Break (set to -1 = white/empty)
-                                // RMB -> Place selected block
-                                if (mouse.left) actionVal = -1; // Break (white/empty)
-                                if (mouse.right) actionVal = window.selectedBlock; // Place
-
-                                if (actionVal !== null) {
-                                    if (mouse.lastX !== undefined && mouse.lastY !== undefined) {
-                                        // Bresenham's Line
-                                        let x0 = mouse.lastX;
-                                        let y0 = mouse.lastY;
-                                        const x1 = worldX;
-                                        const y1 = worldY;
-                                        const dx = Math.abs(x1 - x0);
-                                        const dy = Math.abs(y1 - y0);
-                                        const sx = (x0 < x1) ? 1 : -1;
-                                        const sy = (y0 < y1) ? 1 : -1;
-                                        let err = dx - dy;
-
-                                        while (true) {
-                                            setTile(x0, y0, actionVal);
-                                            if (x0 === x1 && y0 === y1) break;
-                                            const e2 = 2 * err;
-                                            if (e2 > -dy) { err -= dy; x0 += sx; }
-                                            if (e2 < dx) { err += dx; y0 += sy; }
-                                        }
-                                    } else {
-                                        setTile(worldX, worldY, actionVal);
-                                    }
-
-                                    mouse.lastX = worldX;
-                                    mouse.lastY = worldY;
-                                    triggerSave();
-                                }
-                            } else {
-                                // Reset last position if not clicking
-                                mouse.lastX = undefined;
-                                mouse.lastY = undefined;
-                            }
+                            // --- DECOUPLED INPUT HANDLING ---
+                            // Block placement has been moved to Independent Event Listeners (mousedown / mousemove)
+                            // This guarantees interaction speed is completely independent of the render framerate
 
                             // Hide selection sprite in freelook mode
+                            const isInteractable = !isAltPressed && (!camera || !camera.freelook);
                             if (selectSprite) {
                                 selectSprite.visible = isInteractable && hoveredTileX !== null && hoveredTileY !== null;
+                            }
+
+                            // Process interaction in the main loop to account for camera/WASD movement
+                            if (mouse.left || mouse.right) {
+                                handleBlockInteraction(null, false);
                             }
 
                             render();
@@ -1741,8 +1849,6 @@
 
                                 chunkDirt.addChild(graphics);
 
-                                chunkDirt.addChild(graphics);
-
                                 // === MULTI-PASS DUAL GRID (Water -> Dirt -> Grass -> Sand) ===
                                 const worldStartX = cx * CHUNK_SIZE;
                                 const worldStartY = cy * CHUNK_SIZE;
@@ -1754,6 +1860,8 @@
                                     { id: 2, tex: window.textures.grass },
                                     { id: 3, tex: window.textures.tsand }
                                 ];
+
+                                chunkGrass.sortableChildren = true;
 
                                 for (const layer of layers) {
                                     if (layer.tex && layer.tex.textures) {
@@ -1770,9 +1878,22 @@
                                                 const tex = layer.tex.textures[idx];
                                                 if (!tex) continue;
 
-                                                const sprite = new PIXI.Sprite(tex);
+                                                const sprite = getSprite(tex); // Pool implementation to fix lag
+
+                                                // 2.5D Layering Effect
+                                                let depthOffset = 0;
+                                                let depthLevel = 0;
+                                                if (layer.id === 0 || layer.id === 3) {
+                                                    // Water (0) and Sand (3) are Depth -1
+                                                    // By drawing them further DOWN, they look physically lower than Grass/Dirt
+                                                    depthOffset = TILE_SIZE / 4;
+                                                    depthLevel = -1;
+                                                }
+
                                                 sprite.x = x * TILE_SIZE + TILE_SIZE / 2;
-                                                sprite.y = y * TILE_SIZE + TILE_SIZE / 2;
+                                                sprite.y = y * TILE_SIZE + TILE_SIZE / 2 + depthOffset;
+                                                sprite.zIndex = (y * 10) + depthLevel; // Sort children within chunk
+
                                                 sprite.width = TILE_SIZE;
                                                 sprite.height = TILE_SIZE;
                                                 chunkGrass.addChild(sprite);
@@ -1786,13 +1907,12 @@
                                 chunkDirt.y = cy * CHUNK_SIZE * TILE_SIZE;
                                 chunkGrass.x = cx * CHUNK_SIZE * TILE_SIZE;
                                 chunkGrass.y = cy * CHUNK_SIZE * TILE_SIZE;
+                                chunkGrass.zIndex = cy; // Sort chunks against each other!
 
                                 chunkContainers.set(key, { dirt: chunkDirt, grass: chunkGrass });
                                 dirtLayer.addChild(chunkDirt);
-                                grassLayer.addChild(chunkGrass);
 
-                                chunkContainers.set(key, { dirt: chunkDirt, grass: chunkGrass });
-                                dirtLayer.addChild(chunkDirt);
+                                grassLayer.sortableChildren = true;
                                 grassLayer.addChild(chunkGrass);
 
                                 // } catch (e) { ... } (Removed)
@@ -1814,11 +1934,13 @@
                                         for (const [key, containers] of chunkContainers.entries()) {
                                             if (containers.dirt) {
                                                 dirtLayer.removeChild(containers.dirt);
-                                                containers.dirt.destroy();
+                                                returnContainerSprites(containers.dirt);
+                                                containers.dirt.destroy({ children: false });
                                             }
                                             if (containers.grass) {
                                                 grassLayer.removeChild(containers.grass);
-                                                containers.grass.destroy();
+                                                returnContainerSprites(containers.grass);
+                                                containers.grass.destroy({ children: false });
                                             }
                                         }
                                         chunkContainers.clear();
@@ -1885,17 +2007,18 @@
                                         const [kcx, kcy] = key.split(',').map(Number);
 
                                         // Distance check from camera center
-                                        // Distance check from camera center
                                         if (Math.abs(kcx - camChunkX) > unloadDist ||
                                             Math.abs(kcy - camChunkY) > unloadDist) {
 
                                             if (containers.dirt) {
                                                 dirtLayer.removeChild(containers.dirt);
-                                                containers.dirt.destroy({ children: true });
+                                                returnContainerSprites(containers.dirt);
+                                                containers.dirt.destroy({ children: false });
                                             }
                                             if (containers.grass) {
                                                 grassLayer.removeChild(containers.grass);
-                                                containers.grass.destroy({ children: true }); // Ensure children destroyed
+                                                returnContainerSprites(containers.grass);
+                                                containers.grass.destroy({ children: false });
                                             }
                                             chunkContainers.delete(key);
                                         }
@@ -1919,11 +2042,13 @@
                                                     const containers = chunkContainers.get(key);
                                                     if (containers.dirt) {
                                                         dirtLayer.removeChild(containers.dirt);
-                                                        containers.dirt.destroy({ children: true });
+                                                        returnContainerSprites(containers.dirt);
+                                                        containers.dirt.destroy({ children: false });
                                                     }
                                                     if (containers.grass) {
                                                         grassLayer.removeChild(containers.grass);
-                                                        containers.grass.destroy({ children: true });
+                                                        returnContainerSprites(containers.grass);
+                                                        containers.grass.destroy({ children: false });
                                                     }
                                                     chunkContainers.delete(key);
                                                 }

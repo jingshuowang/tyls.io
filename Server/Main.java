@@ -221,6 +221,7 @@ public class Main {
                     // world.tick();
                     updates++;
                     delta--;
+                    System.out.println("*tick*"); // Prints 20 times per second exactly as they happen
                 }
 
                 // Sleep to prevent CPU hogging
@@ -228,12 +229,6 @@ public class Main {
                     Thread.sleep(2);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
-                }
-
-                if (System.currentTimeMillis() - timer > 1000) {
-                    timer += 1000;
-                    System.out.println("TPS: " + updates);
-                    updates = 0;
                 }
             }
 
